@@ -1,0 +1,37 @@
+from fastapi import APIRouter, HTTPException, Response
+
+from models.resume import (
+    ResumeFixRequest,
+    ResumeFixResponse,
+    ResumeChatRequest,
+    ResumeChatResponse,
+)
+from services.resume_service import fix_resume, chat_resume
+
+router = APIRouter()
+
+
+@router.post("/fix", response_model=ResumeFixResponse)
+async def resume_fix(req: ResumeFixRequest) -> ResumeFixResponse:
+    """이력서 자동 생성 (Default Mode, Stateless)."""
+    try:
+        return await fix_resume(req.resume_materials, req.job_post)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/chat", response_model=ResumeChatResponse)
+async def resume_chat(req: ResumeChatRequest, response: Response) -> ResumeChatResponse:
+    """챗봇 교정 모드 (Session-based). session_id 없으면 새 세션 자동 생성."""
+    try:
+        result = await chat_resume(
+            session_id=req.session_id,
+            user_message=req.user_message,
+            materials=req.resume_materials,
+            job_post=req.job_post,
+        )
+        # 클라이언트가 session_id를 헤더로도 받을 수 있도록
+        response.headers["X-Session-Id"] = result.session_id
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
