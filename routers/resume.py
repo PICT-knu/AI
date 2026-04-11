@@ -22,7 +22,13 @@ async def resume_fix(req: ResumeFixRequest) -> ResumeFixResponse:
 
 @router.post("/chat", response_model=ResumeChatResponse)
 async def resume_chat(req: ResumeChatRequest, response: Response) -> ResumeChatResponse:
-    """챗봇 교정 모드 (Session-based). session_id 없으면 새 세션 자동 생성."""
+    """
+    챗봇 교정 모드 (Session-based). session_id 없으면 새 세션 자동 생성.
+    
+    세션 ID를 헤더(X-Session-Id)에 중복 포함한 이유:
+        1. 빠른 인식: 데이터가 길어질 경우, 본문을 다 읽기 전에 헤더만 보고 세션 식별 가능
+        2. 연동 편의성: 프론트엔드 통신 라이브러리(Axios 등)에서 세션 ID를 가로채 관리하기 최적화된 구조
+    """
     try:
         result = await chat_resume(
             session_id=req.session_id,

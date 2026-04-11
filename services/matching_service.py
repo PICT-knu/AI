@@ -2,8 +2,8 @@ import json
 import re
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from models.resume import ResumeMaterial
-from models.matching import JobPostForMatch, MatchResponse, Recommendation
+from models.resume import ResumeMaterial, JobPost
+from models.matching import MatchResponse, Recommendation
 from services.llm_client import get_llm_client
 from utils.fact_check import build_context_block
 
@@ -35,7 +35,7 @@ match_score는 0~100 사이의 소수점 2자리 숫자입니다.
 상위 10개 공고만 반환하고, match_score 내림차순으로 정렬하십시오."""
 
 
-def _format_job_posts(job_posts: list[JobPostForMatch]) -> str:
+def _format_job_posts(job_posts: list[JobPost]) -> str:
     lines = ["[평가 대상 채용 공고 목록]"]
     for jp in job_posts:
         lines.append(f"\n## job_id: {jp.job_id}")
@@ -72,7 +72,7 @@ def _parse_recommendations(text: str) -> list[Recommendation]:
 
 async def top10_matching(
     materials: list[ResumeMaterial],
-    job_posts: list[JobPostForMatch],
+    job_posts: list[JobPost],
 ) -> MatchResponse:
     """공고 TOP 10 추천 (Stateless). temperature: 0.2."""
     llm = get_llm_client(temperature=0.2)
