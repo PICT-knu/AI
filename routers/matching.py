@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 
 from models import MatchRequest, MatchResponse
-from services.matching_service import top10_matching
+from services import top10_matching
 
 router = APIRouter()
 

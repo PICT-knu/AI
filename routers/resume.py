@@ -1,12 +1,7 @@
 from fastapi import APIRouter, HTTPException, Response
 
-from models.resume import (
-    ResumeFixRequest,
-    ResumeFixResponse,
-    ResumeChatRequest,
-    ResumeChatResponse,
-)
-from services.resume_service import fix_resume, chat_resume
+from models import ResumeFixRequest, ResumeFixResponse, ResumeChatRequest, ResumeChatResponse
+from services import fix_resume, chat_resume
 
 router = APIRouter()
 

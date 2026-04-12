@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from routers import resume, matching
+from routers import resume_router, matching_router
 
 app = FastAPI(
     title="PICT AI Server",
@@ -7,8 +7,8 @@ app = FastAPI(
     version="0.1.0",
 )
 
-app.include_router(resume.router, prefix="/resume", tags=["resume"])
-app.include_router(matching.router, prefix="/match", tags=["matching"])
+app.include_router(resume_router, prefix="/resume", tags=["resume"])
+app.include_router(matching_router, prefix="/match", tags=["matching"])
 
 
 @app.get("/health", tags=["health"])

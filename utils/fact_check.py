@@ -1,6 +1,6 @@
 import re
 from models.resume import ResumeMaterial
-
+# 단순한 RAG 로직
 
 def build_context_block(materials: list[ResumeMaterial]) -> str:
     """

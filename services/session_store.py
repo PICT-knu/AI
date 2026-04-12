@@ -2,10 +2,10 @@ import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from typing import Any
-
+# 테스트 실행을 위한 임시 DB및 세션
 
 class SessionStore(ABC):
-    """세션 스토어 추상 인터페이스. RedisSessionStore로 교체 가능."""
+    """세션 스토어 추상 인터페이스. 교체 가능."""
 
     @abstractmethod
     def create_session(self) -> str:

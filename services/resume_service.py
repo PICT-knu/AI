@@ -1,7 +1,7 @@
 import json
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
-from models.resume import (
+from models import (
     ResumeMaterial,
     JobPost,
     ResumeFixResponse,
@@ -17,6 +17,7 @@ _MAX_HISTORY_MESSAGES = 20
 _SUMMARY_KEEP_MESSAGES = 6  # 요약 후 최신 N개 메시지만 유지
 
 
+# 디폴트모드 이력서 작성 시스템 프롬프트 생성
 def _build_fix_system_prompt(materials: list[ResumeMaterial], job_post: JobPost) -> str:
     context = build_context_block(materials)
     return f"""당신은 전문 이력서 작성 AI입니다.
@@ -37,6 +38,7 @@ def _build_fix_system_prompt(materials: list[ResumeMaterial], job_post: JobPost)
 3. 완성된 이력서 전문을 반환하십시오."""
 
 
+# 챗봇모드 이력서 작성 시스템 프롬프트 생성
 def _build_chat_system_prompt(materials: list[ResumeMaterial], job_post: JobPost | None) -> str:
     context = build_context_block(materials)
     job_info = ""
@@ -62,7 +64,8 @@ def _build_chat_system_prompt(materials: list[ResumeMaterial], job_post: JobPost
 {{"changes": [{{"original": "원본 텍스트", "suggested": "수정된 텍스트", "reason": "수정 이유", "material_id": "소재 id 또는 null"}}]}}"""
 
 
-def _summarize_history(history: list[dict], llm) -> list[dict]:
+# AI 기억 압축 : 이전 대화 요약과 최신 메시지만 유지
+async def _summarize_history(history: list[dict], llm) -> list[dict]:
     """
     대화 이력이 임계값을 초과하면 앞부분을 요약하고 최신 메시지만 유지한다.
     """
@@ -73,12 +76,13 @@ def _summarize_history(history: list[dict], llm) -> list[dict]:
     for msg in old:
         summary_prompt += f"{msg['role'].upper()}: {msg['content']}\n"
 
-    summary_msg = llm.invoke([HumanMessage(content=summary_prompt)])
+    summary_msg = await llm.ainvoke([HumanMessage(content=summary_prompt)])
     summary_text = f"[이전 대화 요약]\n{summary_msg.content}"
 
     return [{"role": "system", "content": summary_text}] + recent
 
 
+# 디폴트모드 실행 함수
 async def fix_resume(
     materials: list[ResumeMaterial], job_post: JobPost
 ) -> ResumeFixResponse:
@@ -95,6 +99,7 @@ async def fix_resume(
     return ResumeFixResponse(revised_resume=response.content)
 
 
+# 챗봇모드 실행 함수
 async def chat_resume(
     session_id: str | None,
     user_message: str,
@@ -111,7 +116,7 @@ async def chat_resume(
 
     history = session_store.get_history(session_id)
 
-    # 토큰 예산 초과 시 요약
+    # 토큰 예산 초과 시 요약(과거 메시지 요약)
     if len(history) > _MAX_HISTORY_MESSAGES:
         history = _summarize_history(history, llm)
         # 요약된 이력을 세션에 덮어쓰기
@@ -122,14 +127,14 @@ async def chat_resume(
 
     # 메시지 조립
     messages = [SystemMessage(content=system_prompt)]
-    for msg in history:
+    for msg in history: #과거 메시지(최근 6개 대화)
         if msg["role"] == "user":
             messages.append(HumanMessage(content=msg["content"]))
         elif msg["role"] == "assistant":
             messages.append(AIMessage(content=msg["content"]))
         else:
             messages.append(SystemMessage(content=msg["content"]))
-    messages.append(HumanMessage(content=user_message))
+    messages.append(HumanMessage(content=user_message)) #현재 메시지
 
     response = await llm.ainvoke(messages)
     ai_text = response.content
@@ -143,6 +148,7 @@ async def chat_resume(
     return ResumeChatResponse(session_id=session_id, changes=changes)
 
 
+# JSON 추출 
 def _extract_json(text: str) -> str:
     """
     LLM 응답에서 JSON 객체 부분만 추출한다.
@@ -164,9 +170,9 @@ def _extract_json(text: str) -> str:
 
     return text
 
-
+# JSON을 파이썬이 이해할 수 있도록 ChangeItem 리스트로 변환
 def _parse_changes(text: str) -> list[ChangeItem]:
-    """LLM 응답에서 changes JSON을 추출한다."""
+    """추출된 JSON 문자열을 분석(Parsing)하여 ChangeItem 객체 리스트로 변환한다"""
     candidate = _extract_json(text)
 
     try:
