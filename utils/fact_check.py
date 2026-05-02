@@ -1,6 +1,6 @@
-import re
+from langchain_core.messages import HumanMessage
 from models.resume import ResumeMaterial
-# 단순한 RAG 로직
+
 
 def build_context_block(materials: list[ResumeMaterial]) -> str:
     """
@@ -19,30 +19,34 @@ def build_context_block(materials: list[ResumeMaterial]) -> str:
     return "\n".join(lines)
 
 
-def _tokenize(text: str) -> set[str]:
-    """간단한 토큰화: 한글 단어, 영문 단어, 숫자 추출."""
-    return set(re.findall(r"[가-힣A-Za-z0-9]+", text))
-
-
-def verify_against_materials(suggested_text: str, materials: list[ResumeMaterial]) -> bool:
+async def llm_verify_against_materials(
+    suggested_text: str,
+    materials: list[ResumeMaterial],
+    verifier_llm,
+) -> tuple[bool, list[str]]:
     """
-    suggested_text의 핵심 명사/수치가 materials 원문 중 하나에서 유래했는지 확인한다.
-    - 전체 materials를 합친 토큰 집합과 교집합이 임계값 이상이면 통과.
-    - 빈 materials는 검증 불가이므로 True를 반환한다 (상위에서 처리).
+    검증 LLM(Gemma)을 사용해 suggested_text에 소재에 없는 날조가 있는지 확인한다.
+    반환: (is_pass, issues)
+      - PASS: (True, [])
+      - 날조 감지: (False, ["감지된 항목1", ...])
     """
     if not materials:
-        return True
+        return True, []
 
-    all_material_tokens: set[str] = set()
-    for m in materials:
-        all_material_tokens |= _tokenize(m.content)
+    context = build_context_block(materials)
+    prompt = f"""[소재 원문]
+{context}
 
-    suggested_tokens = _tokenize(suggested_text)
-    if not suggested_tokens:
-        return True
+[검토 대상 텍스트]
+{suggested_text}
 
-    overlap = suggested_tokens & all_material_tokens
-    ratio = len(overlap) / len(suggested_tokens)
+지침: 위 소재 원문에 근거가 있는 내용은 ✓, 소재에 없는 내용(경력·기술·수치 등 날조)은 항목명과 함께 나열하라. 날조가 없으면 정확히 "PASS"라고만 답하라."""
 
-    # 30% 이상의 토큰이 materials에서 유래했으면 통과
-    return ratio >= 0.3
+    response = await verifier_llm.ainvoke([HumanMessage(content=prompt)])
+    answer = response.content.strip()
+
+    if answer.upper() == "PASS":
+        return True, []
+
+    issues = [line.lstrip("- •✓").strip() for line in answer.splitlines() if line.strip() and line.strip() != "✓"]
+    return False, issues if issues else [answer]

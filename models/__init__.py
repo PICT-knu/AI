@@ -1,11 +1,13 @@
 from .resume import (
     ResumeMaterial,
-    JobPost, 
+    JobPost,
     ResumeFixRequest,
     ResumeFixResponse,
     ResumeChatRequest,
     ResumeChatResponse,
-    ChangeItem
+    ChangeItem,
+    ResumeGenerateRequest,
+    ResumeGenerateResponse,
 )
 
 from .matching import (

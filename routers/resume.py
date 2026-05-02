@@ -1,7 +1,11 @@
 from fastapi import APIRouter, HTTPException, Response
 
-from models import ResumeFixRequest, ResumeFixResponse, ResumeChatRequest, ResumeChatResponse
-from services import fix_resume, chat_resume
+from models import (
+    ResumeFixRequest, ResumeFixResponse,
+    ResumeChatRequest, ResumeChatResponse,
+    ResumeGenerateRequest, ResumeGenerateResponse,
+)
+from services import fix_resume, chat_resume, generate_resume
 
 router = APIRouter()
 
@@ -34,5 +38,14 @@ async def resume_chat(req: ResumeChatRequest, response: Response) -> ResumeChatR
         # 클라이언트가 session_id를 헤더로도 받을 수 있도록
         response.headers["X-Session-Id"] = result.session_id
         return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/generate", response_model=ResumeGenerateResponse)
+async def resume_generate(req: ResumeGenerateRequest) -> ResumeGenerateResponse:
+    """1클릭 이력서 초안 생성. 유저 프로필 + 소재 + 공고 JD 기반 맞춤형 이력서 전문 생성."""
+    try:
+        return await generate_resume(req.user_profile, req.resume_materials, req.job_post)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

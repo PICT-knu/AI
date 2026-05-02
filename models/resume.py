@@ -45,3 +45,13 @@ class ChangeItem(BaseModel):
 class ResumeChatResponse(BaseModel):
     session_id: str = Field(description="세션 ID")
     changes: list[ChangeItem] = Field(description="수정 제안 목록")
+
+# 1클릭 이력서 초안 생성 요청 양식
+class ResumeGenerateRequest(BaseModel):
+    user_profile: str = Field(description="유저 기본 프로필 텍스트 (이름, 연락처, 학력 등)")
+    resume_materials: list[ResumeMaterial] = Field(description="이력서 소재가 담긴 리스트")
+    job_post: JobPost = Field(description="지원할 채용공고 정보")
+
+# 1클릭 이력서 초안 생성 응답 양식
+class ResumeGenerateResponse(BaseModel):
+    generated_resume: str = Field(description="AI가 생성한 이력서 초안 전문")

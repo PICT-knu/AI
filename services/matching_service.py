@@ -48,7 +48,7 @@ def _format_batch(batch: list[JobPost]) -> str:
         lines.append(f"- 고용 형태: {jp.employment_type}")
     return "\n".join(lines)
 
-# AI 응답에서 JSON 배열을 추출해 Recommendation 리스트로 변환
+
 def _parse_scores(text: str) -> list[Recommendation]:
     """AI 응답에서 JSON 배열을 추출해 Recommendation 리스트로 변환."""
     # 코드 블록 안의 배열[] 우선 추출
