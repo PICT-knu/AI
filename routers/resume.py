@@ -6,6 +6,7 @@ from models import (
     ResumeGenerateRequest, ResumeGenerateResponse,
 )
 from services import fix_resume, chat_resume, generate_resume
+from services.resume_graph_service import fix_resume_graph
 
 router = APIRouter()
 
@@ -47,5 +48,19 @@ async def resume_generate(req: ResumeGenerateRequest) -> ResumeGenerateResponse:
     """1클릭 이력서 초안 생성. 유저 프로필 + 소재 + 공고 JD 기반 맞춤형 이력서 전문 생성."""
     try:
         return await generate_resume(req.user_profile, req.resume_materials, req.job_post)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/fix-graph", response_model=ResumeFixResponse)
+async def resume_fix_graph(req: ResumeFixRequest) -> ResumeFixResponse:
+    """
+    LangGraph 9단계 파이프라인 기반 이력서 생성 (성능 비교용).
+    /fix와 동일한 요청/응답 스키마.
+    단계: 소재 정규화 → 공고 요구사항 추출 → 소재-공고 매핑 → 구조 설계
+          → 섹션별 작성 → 근거 검증 → 포맷 검증 → 실패 섹션 재작성 → 최종 반환
+    """
+    try:
+        return await fix_resume_graph(req.resume_materials, req.job_post)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
