@@ -15,3 +15,9 @@ from .matching import (
     MatchResponse,
     Recommendation
 )
+
+from .pdf import (
+    MaterialType,
+    ExtractedMaterial,
+    PdfExtractResponse,
+)

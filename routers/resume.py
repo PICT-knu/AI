@@ -1,12 +1,14 @@
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, File, HTTPException, Response, UploadFile
 
 from models import (
     ResumeFixRequest, ResumeFixResponse,
     ResumeChatRequest, ResumeChatResponse,
     ResumeGenerateRequest, ResumeGenerateResponse,
+    PdfExtractResponse,
 )
 from services import fix_resume, chat_resume, generate_resume
 from services.resume_graph_service import fix_resume_graph
+from services.pdf_service import extract_materials_from_pdf
 
 router = APIRouter()
 
@@ -64,3 +66,16 @@ async def resume_fix_graph(req: ResumeFixRequest) -> ResumeFixResponse:
         return await fix_resume_graph(req.resume_materials, req.job_post)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/pdf/extract", response_model=PdfExtractResponse)
+async def resume_pdf_extract(
+    file: UploadFile = File(..., description="이력서 PDF 파일"),
+) -> PdfExtractResponse:
+    """PDF 이력서에서 소재 카드를 자동 추출합니다. AI 처리 실패 시 502 반환."""
+    pdf_bytes = await file.read()
+    filename = file.filename or "resume.pdf"
+    try:
+        return await extract_materials_from_pdf(pdf_bytes, filename)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
