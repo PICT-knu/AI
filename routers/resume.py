@@ -8,6 +8,7 @@ from models import (
 )
 from services import fix_resume, chat_resume, generate_resume
 from services.resume_graph_service import fix_resume_graph
+from services.resume_service_v2 import fix_resume_v2, generate_resume_v2
 from services.pdf_service import extract_materials_from_pdf
 
 router = APIRouter()
@@ -64,6 +65,24 @@ async def resume_fix_graph(req: ResumeFixRequest) -> ResumeFixResponse:
     """
     try:
         return await fix_resume_graph(req.resume_materials, req.job_post)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/fix-v2", response_model=ResumeFixResponse)
+async def resume_fix_v2(req: ResumeFixRequest) -> ResumeFixResponse:
+    """새 파이프라인 (마스킹 + Planner + Generator + Verifier)."""
+    try:
+        return await fix_resume_v2(req.resume_materials, req.job_post)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/generate-v2", response_model=ResumeGenerateResponse)
+async def resume_generate_v2(req: ResumeGenerateRequest) -> ResumeGenerateResponse:
+    """새 파이프라인 기반 1클릭 초안 생성."""
+    try:
+        return await generate_resume_v2(req.user_profile, req.resume_materials, req.job_post)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
