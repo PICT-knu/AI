@@ -19,3 +19,7 @@ class ExtractedMaterial(BaseModel):
 
 class PdfExtractResponse(BaseModel):
     materials: list[ExtractedMaterial]
+
+
+class TextExtractRequest(BaseModel):
+    text: str = Field(description="이력서 소재 추출 대상 텍스트 (Notion 페이지 본문 등 자유 형식)")
