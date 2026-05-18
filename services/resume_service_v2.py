@@ -24,12 +24,19 @@ from utils.fact_check import (
 
 logger = logging.getLogger(__name__)
 
+_EXPLICIT_RULES = (
+    "\n[작성 지시사항]\n"
+    "1. 제공된 소재 이외의 내용을 절대 추가하지 마십시오.\n"
+    "2. 공고의 요구 역량에 맞는 소재를 우선 배치하십시오.\n"
+    "3. 완성된 이력서 전문을 반환하십시오."
+)
+
 
 def _get_verifier_llm():
     """검증 전용 LLM (Gemma). Self-Verification Bias 감소 목적."""
     return ChatGroq(
         api_key=os.getenv("GROQ_API_KEY"),
-        model=os.getenv("VERIFY_MODEL", "gemma2-9b-it"),
+        model=os.getenv("VERIFY_MODEL", "llama-3.1-8b-instant"),
         temperature=0.0,
     )
 
@@ -87,6 +94,7 @@ def _build_generator_prompt(
     job_post: JobPost,
     plan: dict,
     extra_context: str = "",
+    include_rules: bool = False,
 ) -> str:
     """Generator 단계용 시스템 프롬프트를 구성한다."""
     context = build_context_block(masked_materials)
@@ -103,9 +111,9 @@ def _build_generator_prompt(
         f"구조: {style.get('structure', '두괄식')}"
     )
 
-    return (
+    prompt = (
         "당신은 전문 이력서 작성 AI입니다.\n"
-        "아래 소재(마스킹된 팩트는 [F숫자] 형태)와 계획서를 바탕으로 이력서 전문을 작성하십시오.\n"
+        "아래 소재(마스킹된 팩트는 [F숫자] 형태)와 지침을 바탕으로 이력서 전문을 작성하십시오.\n"
         "소재에 없는 내용을 추가하거나 지어내지 마십시오.\n"
         "[F숫자] 기호는 절대 변경하지 말고 그대로 유지하십시오.\n\n"
         f"{context}\n"
@@ -120,6 +128,9 @@ def _build_generator_prompt(
         f"섹션별 강조점:\n{section_guide}\n"
         f"문체 지침: {style_guide}"
     )
+    if include_rules:
+        prompt += _EXPLICIT_RULES
+    return prompt
 
 
 async def _generate_from_plan(
@@ -129,9 +140,10 @@ async def _generate_from_plan(
     llm,
     extra_context: str = "",
     issue_note: str = "",
+    include_rules: bool = False,
 ) -> str:
     """Generator 단계. 계획서와 마스킹 소재 기반으로 이력서 전문을 생성한다."""
-    system_prompt = _build_generator_prompt(masked_materials, job_post, plan, extra_context)
+    system_prompt = _build_generator_prompt(masked_materials, job_post, plan, extra_context, include_rules)
     user_msg = "위 소재와 계획서를 바탕으로 이력서 전문을 작성해 주십시오."
     if issue_note:
         user_msg += f"\n\n주의: 이전 생성에서 아래 문제가 감지되었습니다. 반드시 수정하십시오:\n{issue_note}"
@@ -153,13 +165,14 @@ async def _run_pipeline(
     verifier_llm,
     extra_context: str = "",
     issue_note: str = "",
+    include_rules: bool = False,
 ) -> tuple[str, bool, list[str]]:
     """
     Generator → 언마스킹 → 팩트 검사 → 날조 검사 순으로 실행.
     반환: (최종_텍스트, 검증_통과_여부, 이슈_목록)
     """
     raw = await _generate_from_plan(
-        masked_materials, job_post, plan, main_llm, extra_context, issue_note
+        masked_materials, job_post, plan, main_llm, extra_context, issue_note, include_rules
     )
     unmasked = unmask_text(raw, fact_map)
 

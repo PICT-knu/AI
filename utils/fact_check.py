@@ -43,12 +43,28 @@ async def llm_verify_against_materials(
 [검토 대상 텍스트]
 {suggested_text}
 
-지침: 위 소재 원문에 근거가 있는 내용은 ✓, 소재에 없는 내용(경력·기술·수치 등 날조)은 항목명과 함께 나열하라. 날조가 없으면 정확히 "PASS"라고만 답하라."""
+[판정 기준]
+날조로 판정하는 경우 (둘 중 하나에 해당할 때만):
+  1. 소재에 있는 수치·날짜·고유명사가 다른 값으로 바뀐 경우 (예: 35% → 40%)
+  2. 소재 어디에도 없는 완전히 새로운 경력·기술·자격증·수치가 추가된 경우
+
+날조가 아닌 경우 (판정하지 말 것):
+  - 소재 내용을 다른 문장 구조나 표현으로 자연스럽게 다듬은 것
+  - 이력서 문체에 맞게 소재를 요약하거나 강조한 것
+
+날조가 없으면 정확히 "PASS"라고만 답하라.
+날조가 있으면 해당 항목명과 원문-변형 값을 간결하게 나열하라."""
 
     response = await verifier_llm.ainvoke([HumanMessage(content=prompt)])
     answer = response.content.strip()
 
-    if answer.upper() == "PASS":
+    # "PASS", "날조가 없습니다", "날조 없음" 등 다양한 통과 표현 처리
+    answer_lower = answer.lower()
+    if (
+        answer_lower == "pass"
+        or "날조가 없" in answer
+        or "날조 없음" in answer and "날조로 판정" not in answer
+    ):
         return True, []
 
     issues = [line.lstrip("- •✓").strip() for line in answer.splitlines() if line.strip() and line.strip() != "✓"]

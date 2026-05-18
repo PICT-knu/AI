@@ -27,39 +27,9 @@ def _get_verifier_llm():
     """검증 전용 LLM (Gemma). 생성 모델과 다른 아키텍처로 Self-Verification Bias 감소."""
     return ChatGroq(
         api_key=os.getenv("GROQ_API_KEY"),
-        model=os.getenv("VERIFY_MODEL", "gemma2-9b-it"),
+        model=os.getenv("VERIFY_MODEL", "llama-3.1-8b-instant"),
         temperature=0.0,
     )
-
-
-def _build_fix_system_prompt(
-    materials: list[ResumeMaterial],
-    job_post: JobPost,
-    keywords: list[str] | None = None,
-) -> str:
-    context = build_context_block(materials)
-    keyword_block = ""
-    if keywords:
-        kw_list = "\n".join(f"- {kw}" for kw in keywords)
-        keyword_block = f"\n\n[소재에서 추출된 핵심 역량 키워드 — 이력서에 자연스럽게 반영할 것]\n{kw_list}"
-
-    return f"""당신은 전문 이력서 작성 AI입니다.
-아래에 제공된 소재(resume_materials)만을 사용하여 채용 공고에 최적화된 이력서 전문을 작성하십시오.
-제공된 소재에 없는 내용을 추가하거나 지어내지 마십시오.
-
-{context}{keyword_block}
-
-[채용 공고 정보]
-- 공고 설명: {job_post.description}
-- 경력 조건: {job_post.experience_text}
-- 학력 조건: {job_post.education_text}
-- 고용 형태: {job_post.employment_type}
-
-지시사항:
-1. 제공된 소재 이외의 내용을 절대 추가하지 마십시오.
-2. 공고의 요구 역량에 맞는 소재를 강조하십시오.
-3. 위 핵심 역량 키워드가 있다면 이력서에 자연스럽게 반영하십시오.
-4. 완성된 이력서 전문을 반환하십시오."""
 
 
 def _build_chat_system_prompt(materials: list[ResumeMaterial], job_post: JobPost | None) -> str:
@@ -125,41 +95,9 @@ async def _extract_material_keywords(materials: list[ResumeMaterial], llm) -> li
 async def fix_resume(
     materials: list[ResumeMaterial], job_post: JobPost
 ) -> ResumeFixResponse:
-    """이력서 자동 생성 (Default Mode + 소재 키워드 반영 + LLM 검증). temperature: 0.6."""
-    llm = get_llm_client(temperature=0.6)
-    verifier_llm = _get_verifier_llm()
-
-    keywords = await _extract_material_keywords(materials, llm)
-    system_prompt = _build_fix_system_prompt(materials, job_post, keywords)
-    user_msg = "위 소재와 채용 공고를 바탕으로 이력서 전문을 작성해 주십시오."
-    messages = [
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=user_msg),
-    ]
-
-    response = await llm.ainvoke(messages)
-    revised = response.content
-
-    is_pass, issues = await llm_verify_against_materials(revised, materials, verifier_llm)
-    if is_pass:
-        return ResumeFixResponse(revised_resume=revised)
-
-    # 1회 재시도: 감지된 날조 항목을 명시하여 재생성
-    issues_text = "\n".join(f"- {issue}" for issue in issues)
-    messages[1] = HumanMessage(content=(
-        f"{user_msg}\n\n"
-        f"주의: 이전 생성에서 소재에 없는 내용이 감지되었습니다. 아래 항목을 반드시 제외하십시오:\n"
-        f"{issues_text}"
-    ))
-    response = await llm.ainvoke(messages)
-    revised_retry = response.content
-
-    is_pass2, _ = await llm_verify_against_materials(revised_retry, materials, verifier_llm)
-    if is_pass2:
-        return ResumeFixResponse(revised_resume=revised_retry)
-
-    logger.warning("fix_resume: 2회 검증 모두 실패. 소재 원문을 반환합니다.")
-    return ResumeFixResponse(revised_resume="\n\n".join(m.content for m in materials))
+    """이력서 자동 생성. 마스킹 + 플래너 파이프라인 사용."""
+    from services.resume_service_v2 import fix_resume_v2
+    return await fix_resume_v2(materials, job_post)
 
 
 async def chat_resume(
