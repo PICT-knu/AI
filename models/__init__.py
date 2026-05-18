@@ -20,4 +20,5 @@ from .pdf import (
     MaterialType,
     ExtractedMaterial,
     PdfExtractResponse,
+    TextExtractRequest,
 )

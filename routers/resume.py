@@ -5,10 +5,11 @@ from models import (
     ResumeChatRequest, ResumeChatResponse,
     ResumeGenerateRequest, ResumeGenerateResponse,
     PdfExtractResponse,
+    TextExtractRequest,
 )
 from services import fix_resume, chat_resume, generate_resume
 from services.resume_service_v2 import generate_resume_v2
-from services.pdf_service import extract_materials_from_pdf
+from services.pdf_service import extract_materials_from_pdf, extract_materials_from_text
 
 router = APIRouter()
 
@@ -73,5 +74,16 @@ async def resume_pdf_extract(
     filename = file.filename or "resume.pdf"
     try:
         return await extract_materials_from_pdf(pdf_bytes, filename)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@router.post("/text/extract", response_model=PdfExtractResponse)
+async def resume_text_extract(req: TextExtractRequest) -> PdfExtractResponse:
+    """자유 형식 텍스트(Notion 페이지 본문 등)에서 소재 카드를 자동 추출합니다.
+    AI 처리 실패 시 502 반환. 빈/공백 텍스트는 200 + 빈 materials 로 응답.
+    """
+    try:
+        return await extract_materials_from_text(req.text)
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
