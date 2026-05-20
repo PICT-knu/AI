@@ -9,6 +9,7 @@ from langchain_groq import ChatGroq
 from models import (
     ResumeMaterial,
     JobPost,
+    UserProfile,
     ResumeFixResponse,
     ResumeChatResponse,
     ChangeItem,
@@ -153,8 +154,21 @@ async def chat_resume(
     return ResumeChatResponse(session_id=session_id, changes=verified_changes)
 
 
+def _format_user_profile(user_profile: UserProfile) -> str:
+    """UserProfile 객체를 LLM 프롬프트용 텍스트로 변환."""
+    lines = []
+    if user_profile.career_level:
+        lines.append(f"경력: {user_profile.career_level}")
+    if user_profile.school_name:
+        lines.append(
+            f"학력: {user_profile.degree_type} {user_profile.school_name} {user_profile.major}, "
+            f"{user_profile.enrollment_year}~{user_profile.graduation_year} {user_profile.graduation_status}"
+        )
+    return "\n".join(lines)
+
+
 async def generate_resume(
-    user_profile: str,
+    user_profile: UserProfile,
     materials: list[ResumeMaterial],
     job_post: JobPost,
 ) -> "ResumeGenerateResponse":
@@ -167,13 +181,14 @@ async def generate_resume(
     keywords = await _extract_material_keywords(materials, llm)
     context = build_context_block(materials)
     kw_list = "\n".join(f"- {kw}" for kw in keywords)
+    profile_text = _format_user_profile(user_profile)
 
     system_prompt = f"""당신은 전문 이력서 작성 AI입니다.
 아래 유저 프로필, 소재, 핵심 키워드를 바탕으로 채용 공고 맞춤형 이력서 초안 전문을 작성하십시오.
 소재에 없는 내용을 지어내지 마십시오.
 
 [유저 프로필]
-{user_profile}
+{profile_text}
 
 {context}
 

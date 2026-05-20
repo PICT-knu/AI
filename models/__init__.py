@@ -1,6 +1,7 @@
 from .resume import (
     ResumeMaterial,
     JobPost,
+    UserProfile,
     ResumeFixRequest,
     ResumeFixResponse,
     ResumeChatRequest,
@@ -13,12 +14,15 @@ from .resume import (
 from .matching import (
     MatchRequest,
     MatchResponse,
-    Recommendation
+    Recommendation,
+    UserPreferences,
 )
 
 from .pdf import (
     MaterialType,
     ExtractedMaterial,
     PdfExtractResponse,
+    ManualExtractedMaterial,
+    ManualExtractResponse,
     TextExtractRequest,
 )

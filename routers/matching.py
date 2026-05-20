@@ -10,6 +10,6 @@ router = APIRouter()
 async def match_top10(req: MatchRequest) -> MatchResponse: #입력 규격 및 반환규격 정의
     """공고 TOP 10 추천. resume_materials와 job_posts 기반으로 적합도 점수 계산 후 상위 10개 반환."""
     try:
-        return await top10_matching(req.resume_materials, req.job_posts)
+        return await top10_matching(req.resume_materials, req.job_posts, req.user_preferences)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

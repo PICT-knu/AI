@@ -9,6 +9,7 @@ from langchain_groq import ChatGroq
 from models.resume import (
     ResumeMaterial,
     JobPost,
+    UserProfile,
     ResumeFixResponse,
     ResumeGenerateResponse,
 )
@@ -232,7 +233,7 @@ async def fix_resume_v2(
 
 
 async def generate_resume_v2(
-    user_profile: str,
+    user_profile: UserProfile,
     materials: list[ResumeMaterial],
     job_post: JobPost,
 ) -> ResumeGenerateResponse:
@@ -240,6 +241,8 @@ async def generate_resume_v2(
     v2 파이프라인 기반 1클릭 초안 생성.
     fix_resume_v2와 동일하나 Generator 프롬프트에 유저 프로필 추가.
     """
+    from services.resume_service import _format_user_profile
+
     main_llm = get_llm_client(temperature=0.6)
     light_llm = get_light_llm_client(temperature=0.1)
     verifier_llm = _get_verifier_llm()
@@ -248,7 +251,7 @@ async def generate_resume_v2(
     masked = mask_materials(materials, fact_map)
     plan = await _plan_resume(masked, job_post, light_llm)
 
-    extra = f"[유저 프로필]\n{user_profile}\n"
+    extra = f"[유저 프로필]\n{_format_user_profile(user_profile)}\n"
 
     result, is_pass, issues = await _run_pipeline(
         materials, masked, job_post, plan, fact_map, main_llm, verifier_llm,

@@ -15,6 +15,7 @@ class JobPost(BaseModel):
     experience_text: str = Field(description="요구 경력")
     education_text: str = Field(description="요구 학력")
     employment_type: str = Field(description="고용 형태 (예: 정규직, 계약직)")
+    location: Optional[str] = Field(description="근무지 (예: 서울 강남구)", default=None)
 
 # 이력서 수정 요청 양식
 class ResumeFixRequest(BaseModel):
@@ -46,9 +47,19 @@ class ResumeChatResponse(BaseModel):
     session_id: str = Field(description="세션 ID")
     changes: list[ChangeItem] = Field(description="수정 제안 목록")
 
+class UserProfile(BaseModel):
+    career_level: str = Field(default="", description="경력 단계 (예: '신입', '1-3년')")
+    degree_type: str = Field(default="", description="대학 유형 (예: '4년제', '2/3년제')")
+    graduation_status: str = Field(default="", description="졸업 여부 (예: '졸업', '재학중', '졸업예정')")
+    school_name: str = Field(default="", description="학교명 (예: '국립공주대학교')")
+    major: str = Field(default="", description="전공 (예: '컴퓨터공학')")
+    enrollment_year: str = Field(default="", description="입학년도 (예: '2022')")
+    graduation_year: str = Field(default="", description="졸업년도 (예: '2026')")
+
+
 # 1클릭 이력서 초안 생성 요청 양식
 class ResumeGenerateRequest(BaseModel):
-    user_profile: str = Field(description="유저 기본 프로필 텍스트 (이름, 연락처, 학력 등)")
+    user_profile: UserProfile = Field(default_factory=UserProfile, description="유저 기본 프로필 (학력, 경력 단계 등)")
     resume_materials: list[ResumeMaterial] = Field(description="이력서 소재가 담긴 리스트")
     job_post: JobPost = Field(description="지원할 채용공고 정보")
 
