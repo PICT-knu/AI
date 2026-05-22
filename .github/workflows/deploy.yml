@@ -15,8 +15,4 @@ jobs:
         run: |
           echo "$PRIVATE_KEY" > private_key.pem
           chmod 600 private_key.pem
-          ssh -i private_key.pem \
-            -o StrictHostKeyChecking=no \
-            -o PubkeyAcceptedAlgorithms=+ssh-rsa \
-            ${{ secrets.EC2_USERNAME }}@${{ secrets.EC2_HOST }} \
-            "cd ~/AI && git pull origin main && sudo docker-compose up -d --build"
+          ssh -i private_key.pem -o StrictHostKeyChecking=no -o PubkeyAcceptedAlgorithms=+ssh-rsa ${{ secrets.EC2_USERNAME }}@${{ secrets.EC2_HOST }} "cd ~/AI && git pull origin main && sudo docker-compose up -d --build"
