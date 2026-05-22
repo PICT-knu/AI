@@ -24,5 +24,7 @@ jobs:
           ssh -i ~/.ssh/deploy_key -l "$EC2_USER" "$EC2_HOST" bash -s << 'EOF'
             cd ~/AI
             git pull origin main
-            sudo docker-compose up -d --build
+            sudo docker-compose down
+            sudo docker-compose build --no-cache
+            sudo docker-compose up -d
           EOF
