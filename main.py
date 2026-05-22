@@ -5,6 +5,7 @@ app = FastAPI(
     title="PICT AI Server",
     description="맞춤형 취업 AI Agent — 이력서 수정 및 공고 매칭 AI 서버",
     version="0.1.0",
+    openapi_version="3.0.3",
 )
 
 app.include_router(resume_router, prefix="/resume", tags=["resume"])
