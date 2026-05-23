@@ -21,7 +21,7 @@ jobs:
           EC2_HOST=$(echo "$EC2_HOST_RAW" | tr -d '[:space:]')
           EC2_USER=$(echo "$EC2_USER_RAW" | tr -d '[:space:]')
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
-          ssh -i ~/.ssh/deploy_key -l "$EC2_USER" "$EC2_HOST" bash -s << 'EOF'
+          ssh -t -i ~/.ssh/deploy_key -l "$EC2_USER" "$EC2_HOST" bash -s << 'EOF'
             cd ~/AI
             git pull origin main
             sudo docker-compose up -d --build
