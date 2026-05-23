@@ -21,16 +21,6 @@ class PdfExtractResponse(BaseModel):
     materials: list[ExtractedMaterial]
 
 
-class ManualExtractedMaterial(BaseModel):
-    title: str = Field(description="소재 제목 (30자 이내 권장)")
-    content: str = Field(description="해당 소재에 해당하는 원문 발췌")
-    summary: Optional[str] = Field(default=None, description="소재 요약 (100자 이내 권장)")
-    material_type: MaterialType
-
-
-class ManualExtractResponse(BaseModel):
-    materials: list[ManualExtractedMaterial]
-
 
 class TextExtractRequest(BaseModel):
     text: str = Field(description="이력서 소재 추출 대상 텍스트 (Notion 페이지 본문 등 자유 형식)")

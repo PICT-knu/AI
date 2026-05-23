@@ -5,12 +5,10 @@ from models import (
     ResumeChatRequest, ResumeChatResponse,
     ResumeGenerateRequest, ResumeGenerateResponse,
     PdfExtractResponse,
-    ManualExtractResponse,
     TextExtractRequest,
 )
 from services import fix_resume, chat_resume, generate_resume
-from services.resume_service_v2 import generate_resume_v2
-from services.pdf_service import extract_materials_from_pdf, extract_materials_from_text, extract_materials_from_manual
+from services.pdf_service import extract_materials_from_pdf, extract_materials_from_text
 
 router = APIRouter()
 
@@ -49,14 +47,6 @@ async def resume_generate(req: ResumeGenerateRequest) -> ResumeGenerateResponse:
 
 
 
-@router.post("/generate-v2", response_model=ResumeGenerateResponse)
-async def resume_generate_v2(req: ResumeGenerateRequest) -> ResumeGenerateResponse:
-    """새 파이프라인 기반 1클릭 초안 생성."""
-    try:
-        return await generate_resume_v2(req.user_profile, req.resume_materials, req.job_post)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 @router.post("/pdf/extract", response_model=PdfExtractResponse)
 async def resume_pdf_extract(
@@ -78,16 +68,5 @@ async def resume_text_extract(req: TextExtractRequest) -> PdfExtractResponse:
     """
     try:
         return await extract_materials_from_text(req.text)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
-
-
-@router.post("/manual/extract", response_model=ManualExtractResponse)
-async def resume_manual_extract(req: TextExtractRequest) -> ManualExtractResponse:
-    """수동 입력 텍스트에서 소재 카드를 추출합니다. content(원문 발췌) + summary(요약) 둘 다 반환.
-    AI 처리 실패 시 502 반환. 빈/공백 텍스트는 200 + 빈 materials 로 응답.
-    """
-    try:
-        return await extract_materials_from_manual(req.text)
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))

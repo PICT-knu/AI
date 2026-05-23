@@ -24,7 +24,5 @@ from .pdf import (
     MaterialType,
     ExtractedMaterial,
     PdfExtractResponse,
-    ManualExtractedMaterial,
-    ManualExtractResponse,
     TextExtractRequest,
 )
