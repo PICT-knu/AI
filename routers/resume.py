@@ -1,4 +1,4 @@
-from fastapi import APIRouter, File, HTTPException, Response, UploadFile
+from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from models import (
     ResumeFixRequest, ResumeFixResponse,
@@ -25,24 +25,16 @@ async def resume_fix(req: ResumeFixRequest) -> ResumeFixResponse:
 
 
 @router.post("/chat", response_model=ResumeChatResponse)
-async def resume_chat(req: ResumeChatRequest, response: Response) -> ResumeChatResponse:
-    """
-    챗봇 교정 모드 (Session-based). session_id 없으면 새 세션 자동 생성.
-    
-    세션 ID를 헤더(X-Session-Id)에 중복 포함한 이유:
-        1. 빠른 인식: 데이터가 길어질 경우, 본문을 다 읽기 전에 헤더만 보고 세션 식별 가능
-        2. 연동 편의성: 프론트엔드 통신 라이브러리(Axios 등)에서 세션 ID를 가로채 관리하기 최적화된 구조
-    """
+async def resume_chat(req: ResumeChatRequest) -> ResumeChatResponse:
+    """챗봇 교정 모드 (Session-based). reason + suggested_body(ResumeBody) 반환."""
     try:
-        result = await chat_resume(
+        return await chat_resume(
             session_id=req.session_id,
-            user_message=req.user_message,
+            message=req.message,
+            current_body=req.current_body,
             materials=req.resume_materials,
             job_post=req.job_post,
         )
-        # 클라이언트가 session_id를 헤더로도 받을 수 있도록
-        response.headers["X-Session-Id"] = result.session_id
-        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

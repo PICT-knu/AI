@@ -4,11 +4,11 @@ from pydantic import BaseModel, Field
 
 
 class MaterialType(str, Enum):
-    EXPERIENCE = "경력"
-    PROJECT = "프로젝트"
-    SKILL = "기술스택"
-    EDUCATION = "교육"
-    OTHER = "기타"
+    EXPERIENCE = "EXPERIENCE"
+    PROJECT = "PROJECT"
+    SKILL = "SKILL"
+    EDUCATION = "EDUCATION"
+    OTHER = "OTHER"
 
 
 class ExtractedMaterial(BaseModel):

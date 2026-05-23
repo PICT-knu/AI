@@ -1,3 +1,4 @@
+from typing import Optional
 from pydantic import BaseModel, Field
 from models.resume import ResumeMaterial, JobPost
 
@@ -23,7 +24,8 @@ class MatchRequest(BaseModel):
 
 
 class Recommendation(BaseModel):
-    job_id: str = Field(description="채용공고 고유 ID")
+    job_posting_id: Optional[int] = Field(default=None, description="채용공고 PK (BE1 DB)")
+    job_id: Optional[str] = Field(default=None, description="채용공고 고유 ID (하위 호환)")
     match_score: float = Field(description="매칭 점수 (0~100)")
     reason_text: str = Field(description="AI의 근거 설명 (예: '경력:90, 기술스택:80, 복지:75')")
 

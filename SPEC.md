@@ -2,54 +2,106 @@
 
 ## 1. 개요
 
-Python FastAPI 기반의 **복합 AI 플랫폼 서버**. 이력서 수정(Resume Tailoring)과 챗봇 교정 모드를 핵심 기능으로 하며, RAG 파이프라인·LangGraph 에이전트 오케스트레이션을 지원한다. 복수의 내부 팀/서비스가 호출하는 내부 전용 서버이다.
+Python FastAPI 기반의 **복합 AI 플랫폼 서버**. 이력서 최적화·초안 생성·소재 추출·챗봇 교정·채용공고 매칭을 핵심 기능으로 하며, 다층 할루시네이션 방지 파이프라인을 내장한다. BE1(Spring)이 HTTP로 호출하는 내부 전용 서버이다.
 
-- **현재 LLM**: Groq API (`llama-3.3-70b-versatile`)
-- **오케스트레이션**: LangChain / LangGraph
-- **BE1(Spring)** 이 HTTP로 호출 → Groq API 처리 → JSON 반환
+- **메인 LLM**: Groq API (`llama-3.3-70b-versatile`) — 이력서 생성·교정·매칭
+- **소재 추출 LLM**: OpenRouter (`anthropic/claude-opus-4`) — PDF 파싱 지원 필요로 별도 프로바이더 사용
+- **오케스트레이션**: LangChain (직접 `ainvoke` 호출 방식, LangGraph 미사용)
+- **BE1(Spring)** 이 HTTP로 호출 → AI 처리 후 JSON 반환
 
 ---
 
 ## 2. 핵심 파이프라인
 
-### 2.1 이력서 자동 생성 파이프라인 (Default Mode — Stateless)
+### 2.1 이력서 자동 최적화 파이프라인 (Default Mode — Stateless)
 
 - **엔드포인트**: `POST /resume/fix`
-- **Temperature**: 0.5 ~ 0.7
-- **오케스트레이션**: LangGraph StateGraph
+- **구현 파일**: `services/resume_service_v2.py` (`fix_resume_v2`)
+- **Temperature**: 메인 LLM 0.6 / Planner(경량 LLM) 0.1 / 검증 LLM 0.0
+
+실제 실행 파이프라인 (v2):
 
 | 단계 | 설명 |
 |------|------|
-| **1. Extraction** | 사용자 소재(PDF, Notion 링크 등)를 텍스트로 파싱 후 `resume_materials` 테이블의 `material_type`(경험·프로젝트·기술 등)에 따라 분류·저장 |
-| **2. JD Matching** | `job_posts` 에서 채용 공고 요구 역량·기술스택 추출 → `resume_materials`와 비교해 최적 소재 선별 |
-| **3. Filling & Tailoring** | 선별 소재를 기반으로 공고 최적화된 이력서 전문 자동 생성 |
-| **4. Human-in-the-Loop** | AI 수정 제안을 `Original` vs `Suggested` 형식으로 반환 → 사용자 승인 시 `resume_suggestions` 상태 업데이트 |
+| **① 팩트 추출** | 소재에서 날짜·수치·고유명사를 추출해 `{F1: "삼성SDS", F2: "2023.03", ...}` 맵 생성 (경량 LLM) |
+| **② 팩트 마스킹** | 소재 내 팩트 값을 `[F1]`, `[F2]` 기호로 치환 |
+| **③ Planner** | 마스킹 소재 + 공고 분석 → 섹션 순서·강조점·문체 스타일 포함 이력서 구성안(JSON) 생성 (경량 LLM) |
+| **④ Generator ×2** | JOB_FIT·ACHIEVEMENT 두 버전을 `asyncio.gather`로 병렬 생성 (메인 LLM). `[F숫자]` 기호 그대로 유지 |
+| **⑤ 언마스킹** | 각 버전의 `[F1]` 기호를 원본 팩트 값으로 복원 |
+| **⑤-a 팩트 검사** | Python으로 모든 팩트 값이 최종 텍스트에 존재하는지 확인 (LLM 호출 없음) |
+| **⑤-b 날조 검사** | 검증 LLM으로 소재에 없는 내용이 추가됐는지 교차 판정 (버전별 독립 실행) |
+| **재시도** | 검증 실패 시 이슈 명시 후 1회 재시도. 재시도도 비어있으면 1차 결과 반환 |
+| **⑥ 스코어링** | 각 버전의 공고 키워드 커버리지를 LLM으로 0~100 정수 산출 |
+| **⑦ 추천 결정** | `matching_score`가 높은 버전을 `recommended_type`으로 지정 |
 
+- JOB_FIT: 공고 요구사항 직접 매핑, 직무 키워드 강조
+- ACHIEVEMENT: 수치·성과 중심, 임팩트 있는 표현
+- 응답: `ResumeFixResponse { generated_at, recommended_type, versions: [JOB_FIT, ACHIEVEMENT] }`
+- 각 버전의 `body`는 `ResumeBody { about, experience: [...], skills: [...] }` JSON 구조
 - 각 요청은 **무상태(stateless)**. 대화 이력 불필요.
 - 최종 이력서 데이터는 AI 서버가 아닌 **백엔드 DB에서 영속 관리**.
 
 ### 2.2 챗봇 교정 모드 (Chatbot Mode — Session-based)
 
 - **엔드포인트**: `POST /resume/chat`
-- **Temperature**: 0.5 ~ 0.7
-- **오케스트레이션**: LangGraph 대화형 그래프 (메모리 노드 포함)
+- **구현 파일**: `services/resume_service.py` (`chat_resume`)
+- **Temperature**: 0.6
 
 - 사용자 추가 요청("특정 스타일로 고쳐줘" 등)을 실시간 반영.
-- **세션 단위 서버 상태** 유지: 세션별 대화 이력을 서버(Redis 등)에 보관.
-  - 클라이언트는 `session_id`만 전달.
+- **응답**: `ResumeChatResponse { reason: str, suggested_body: ResumeBody }` — 수정 이유와 전체 이력서 본문 JSON 반환.
+- **세션 단위 서버 상태** 유지: 세션별 대화 이력을 `InMemorySessionStore`에 보관.
+  - BE1이 자체 관리하는 숫자 문자열 `session_id`(예: `"200"`)를 그대로 수신.
+  - `session_id`가 없으면 서버가 UUID로 새 세션 생성.
   - AI 서버 자체는 세션 단위까지만 관리; 장기 이력은 백엔드 DB 책임.
-- **컨텍스트 윈도우 초과 방지**: 토큰 예산 기반 요약(token-budget summarization).
-  - 잔여 토큰이 임계값 이하로 떨어지면 이전 메시지를 자동 요약 후 컨텍스트에 포함.
-  - 요약 전 원본은 세션 스토어에 보존.
+- **Lazy Create (세션 자동 복원)**: 세션 만료 후 동일 `session_id` + `current_body` 재전송 시 `current_body` + `resume_materials`로 컨텍스트를 재구성하여 대화 맥락 복원.
+- **컨텍스트 윈도우 초과 방지**: 히스토리 20개 초과 시 앞부분을 LLM으로 요약 후 최근 6개 메시지만 유지.
+- **할루시네이션 검증**: 생성된 `suggested_body` 전체를 검증 LLM으로 소재 원문과 교차 검사. 경고 로그만 기록 (응답은 반환).
+
+### 2.3 소재 추출 파이프라인 (Material Extraction — Stateless)
+
+- **엔드포인트**: `POST /resume/pdf/extract`, `POST /resume/text/extract`, `POST /resume/manual/extract`
+- **구현 파일**: `services/pdf_service.py`
+- **LLM**: OpenRouter (`anthropic/claude-opus-4` 기본값) — PDF 파싱 지원을 위해 Groq 미사용
+- **Temperature**: 0.1
+
+| 엔드포인트 | 입력 | 가드 로직 | 반환 추가 필드 |
+|---|---|---|---|
+| `/pdf/extract` | PDF 파일 (multipart) | 없음 | — |
+| `/text/extract` | 자유 텍스트 (JSON) | 있음 (회의록·피드백·코드 덤프 등 필터) | — |
+| `/manual/extract` | 사용자 직접 입력 (JSON) | 없음 | `content` (원문 발췌) |
+
+- OpenRouter `file-parser` 플러그인 + `response_format` JSON Schema 강제로 파싱 실패 없음.
+- 소재 유형: `"EXPERIENCE"`, `"PROJECT"`, `"SKILL"`, `"EDUCATION"`, `"OTHER"`
+
+### 2.4 이력서 초안 생성 (Generate — Stateless)
+
+- **엔드포인트**: `POST /resume/generate` (v1), `POST /resume/generate-v2` (v2 파이프라인)
+- **구현 파일**: `services/resume_service.py` (v1) / `services/resume_service_v2.py` (v2)
+- v2는 2.1과 동일한 팩트 마스킹+Planner+Generator+Verifier 파이프라인 사용. Generator 프롬프트에 `user_profile` 추가.
+
+### 2.5 채용공고 매칭 (Matching — Stateless)
+
+- **엔드포인트**: `POST /match/top10`
+- **구현 파일**: `services/matching_service.py`
+
+3단계 파이프라인:
+
+| 단계 | 방법 | 설명 |
+|---|---|---|
+| **① 사전 필터** | Python (0ms) | `avoidance_options` 키워드 + 자유 텍스트 + 지역 필터로 부적합 공고 제거 |
+| **② 임베딩 유사도** | OpenRouter `text-embedding-3-small` | 소재 전체 vs 각 공고 코사인 유사도 → 상위 25개 추출 |
+| **③ LLM 스코어링** | asyncio 병렬 처리 (temperature 0.1) | 10개씩 배치, 경력·기술스택·선호도 반영 0~100점 계산 |
+
+- 지역 필터 결과 < 10이면 지역 필터 해제 후 전체 공고 대상으로 임베딩 재시도.
 
 ---
 
 ## 3. 파이프라인 구성 관리
 
-- 파이프라인은 **LangGraph StateGraph**로 정의. 각 노드가 파이프라인의 한 단계에 해당.
-- 그래프 정의는 `services/` 내 Python 코드로 관리. 변경 시 재배포 필요 (Git으로 이력 관리).
+- 파이프라인은 `services/` 내 Python 코드로 구현 (LangChain 직접 `ainvoke` 호출 방식, LangGraph 미사용).
+- 변경 시 재배포 필요 (Git으로 이력 관리).
 - 시스템 프롬프트는 코드 파일에 하드코딩. 수정 시 재배포 수반.
-- LangChain의 `ChatGroq` 클라이언트를 통해 Groq API 호출.
+- Groq 호출: LangChain `ChatGroq` 클라이언트. OpenRouter 소재 추출: httpx 직접 호출.
 
 > **미래 개선 포인트**: 프롬프트를 DB에 저장하면 재배포 없이 수정 가능. 현재는 단순성 우선.
 
@@ -57,34 +109,35 @@ Python FastAPI 기반의 **복합 AI 플랫폼 서버**. 이력서 수정(Resume
 
 ## 4. LLM 프로바이더
 
-### 4.1 현재 프로바이더 (기본)
+### 4.1 현재 프로바이더
 
-- **Groq API** — `llama-3.3-70b-versatile` 모델 고정 사용.
-- LangChain `ChatGroq` 클라이언트로 호출.
+**Groq (기본 — 이력서 생성·교정·매칭)**
+- 메인 모델: `llama-3.3-70b-versatile` (temperature 0.6)
+- 경량 모델: `llama-3.3-70b-versatile` (Planner용, temperature 0.1 / `GROQ_LIGHT_MODEL`로 교체 가능)
+- 검증 모델: `llama-3.1-8b-instant` (temperature 0.0 / `VERIFY_MODEL`로 교체 가능)
+- LangChain `ChatGroq` 클라이언트 사용.
 - 환경변수 `GROQ_API_KEY` 필수.
 
-### 4.2 향후 확장 포인트
+**OpenRouter (소재 추출·임베딩 전용)**
+- 소재 추출: `anthropic/claude-opus-4` 기본값 — PDF `file-parser` 플러그인 지원 필요로 Groq 미사용
+- 임베딩: `openai/text-embedding-3-small` — 매칭 파이프라인 2단계에서 사용
+- LangChain `ChatOpenAI` (base_url 오버라이드) 또는 httpx 직접 호출.
+- 환경변수 `OPENROUTER_API_KEY` 필수 (소재 추출·매칭 기능 사용 시).
 
-- 프로바이더 추상화 레이어(`services/llm_client.py`)를 두어 교체 가능하게 설계.
-- 추가 예정 프로바이더: Claude (Anthropic), OpenAI (GPT 계열).
-- 환경변수 `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`는 선택 항목으로 미리 정의.
+### 4.2 클라이언트 함수 (`services/llm_client.py`)
 
-### 4.3 라우팅 전략
+| 함수 | 용도 | 기본 temperature |
+|---|---|---|
+| `get_llm_client(temperature)` | 이력서 생성·교정·매칭 스코어링 | 0.6 |
+| `get_light_llm_client(temperature)` | Planner 등 창의성 불필요 단계 | 0.1 |
 
-- **파이프라인별 고정 모델**: 현재는 전 파이프라인이 Groq `llama-3.3-70b-versatile` 사용.
-- 런타임 동적 라우팅 없음. 프로바이더 전환 시 코드/환경변수 변경 후 재배포.
+`LLM_PROVIDER` 환경변수로 `"groq"` / `"openrouter"` 전환. 미설정 시 `"groq"`.  
+프로바이더 전환은 `services/llm_client.py` 하나만 수정하면 됨. 서비스 코드 변경 불필요.
 
-### 4.4 오류 처리 및 폴백
+### 4.3 오류 처리 및 폴백
 
-| 오류 유형 | 동작 |
-|-----------|------|
-| 타임아웃 | 지수 백오프(exponential backoff) 자동 재시도 |
-| Rate Limit (429) | 재시도 간격을 `Retry-After` 헤더 또는 고정 대기로 조절 |
-| 유해 콘텐츠 거부 (400) | 폴백 모델로 전환 → 그래도 실패 시 에러 반환 |
-| 프로바이더 장애 | 설정된 폴백 체인 순서로 다음 프로바이더 시도 |
-
-- 폴백은 **클라이언트에 투명하게** 처리 (폴백 발생 여부는 로그에만 기록).
-- 재시도/폴백 최대 횟수는 서비스 설정에서 지정.
+- LLM 검증 실패: 이슈 명시 후 1회 재시도. 재시도도 실패 시 1차 결과 반환.
+- 매칭 배치 실패: 해당 배치 건너뛰고 나머지 결과만 반환 (부분 성공 가능).
 
 ---
 
@@ -138,15 +191,15 @@ BE1이 AI 서버에 전달하는 materials 예시:
 {
   "resume_materials": [
     {
-      "material_type": "experience",
+      "material_type": "EXPERIENCE",
       "content": "2023.03 ~ 현재, ABC회사, 백엔드 개발자, Java/Spring 기반 서비스 개발"
     },
     {
-      "material_type": "project",
+      "material_type": "PROJECT",
       "content": "실시간 알림 시스템 구축, Kafka 활용, DAU 10만 처리"
     },
     {
-      "material_type": "skill",
+      "material_type": "SKILL",
       "content": "Java, Spring Boot, Kafka, PostgreSQL, Docker"
     }
   ],
@@ -175,12 +228,15 @@ BE1이 AI 서버에 전달하는 materials 예시:
 
 | 모드 | 상태 저장 위치 | 키 |
 |------|--------------|-----|
-| 이력서 생성 (default) | 없음 (stateless) | — |
-| 챗봇 교정 | Redis (세션 TTL 설정) | `session_id` |
+| 이력서 생성·추출·매칭 | 없음 (stateless) | — |
+| 챗봇 교정 | `InMemorySessionStore` (서버 프로세스 내) | `session_id` (BE1 숫자 문자열 또는 서버 생성 UUID) |
 | 장기 이력/결과물 | 백엔드 DB (AI 서버 관할 외) | — |
 
-- Redis 세션 TTL: 기본 1시간 (설정으로 변경 가능).
-- 세션 만료 시 클라이언트에 `410 Gone` 반환.
+- 세션 TTL: 기본 1시간 (`SESSION_TTL_SECONDS` 환경변수로 변경 가능).
+- 마지막 요청 기준으로 TTL 갱신 (접근 시 자동 연장).
+- 세션 만료 후 동일 `session_id` + `current_body` 재전송 시 컨텍스트 자동 복원 (lazy create).
+- **현재 구현**: 인메모리 (`services/session_store.py` — `InMemorySessionStore`). 서버 재시작 시 세션 초기화.
+- **향후**: `SessionStore` 추상 인터페이스로 Redis 교체 가능하도록 설계됨.
 
 ---
 
@@ -229,60 +285,95 @@ BE1이 AI 서버에 전달하는 materials 예시:
 ### 11.2 주요 엔드포인트
 
 ```
-POST /resume/fix
-  - 이력서 자동 생성 (Default Mode, 비스트리밍)
-  - Body: { resume_materials: [...], job_post: {...} }
-  - Response: { revised_resume: "수정된 이력서 전문" }
+GET  /health
+  - 헬스체크 (liveness)
+  - Response: { "status": "ok" }
 
-POST /resume/fix/stream
-  - 이력서 자동 생성 (SSE 스트리밍)
-  - Body: 동일, Content-Type: text/event-stream
+POST /resume/fix
+  - 이력서 자동 최적화 (v2 파이프라인, 무상태)
+  - Body: { member_id?, job_posting_id?, resume_materials: [...], job_post: {...} }
+  - Response: { generated_at, recommended_type, versions: [{ type, body: ResumeBody, matching_score, summary }] }
+  - 항상 JOB_FIT·ACHIEVEMENT 2개 버전 반환
 
 POST /resume/chat
-  - 챗봇 교정 모드 (Session-based)
-  - Body: { session_id: string, message: string, resume_materials: [...] }
-  - Response: { changes: [{ original, suggested, reason, material_id }] }
+  - 챗봇 교정 모드 (세션 기반)
+  - Body: { session_id?: string, tailored_resume_id?, message: string, current_body?: ResumeBody, resume_materials: [...], job_post?: {...} }
+  - Response: { reason: string, suggested_body: ResumeBody }
+  - session_id는 BE1 숫자 문자열 그대로 수신. 없으면 UUID 신규 생성
 
-POST /resume/chat/stream
-  - 챗봇 교정 모드 (SSE 스트리밍)
+POST /resume/generate
+  - 1클릭 이력서 초안 생성 (무상태)
+  - Body: { user_profile: {...}, resume_materials: [...], job_post: {...} }
+  - Response: { generated_resume: "초안 전문" }
+
+POST /resume/generate-v2
+  - 1클릭 초안 생성 (v2 파이프라인, 실험용)
+  - Body: 동일 /resume/generate
+
+POST /resume/pdf/extract
+  - PDF 이력서에서 소재 카드 추출 (multipart/form-data)
+  - Body: file=<PDF 파일>
+  - Response: { materials: [{ title, summary, material_type }] }
+  - 실패 시 502
+
+POST /resume/text/extract
+  - Notion 텍스트에서 소재 카드 추출 (JSON)
+  - Body: { text: "자유 형식 텍스트" }
+  - Response: { materials: [{ title, summary, material_type }] }
+  - 가드 로직 있음: 회의록·피드백·코드 덤프 등 필터
+  - 실패 시 502
+
+POST /resume/manual/extract
+  - 수동 입력 텍스트에서 소재 카드 추출 (JSON)
+  - Body: { text: "사용자 직접 입력" }
+  - Response: { materials: [{ title, content, summary, material_type }] }
+  - 가드 로직 없음 (입력 내용을 무조건 소재로 처리)
+  - content(원문 발췌) + summary(요약) 둘 다 반환
+  - 실패 시 502
 
 POST /match/top10
-  - 공고 TOP 10 추천 + 적합도 점수
-  - Body: { resume_materials: [...], job_posts: [...] }
-  - Response: { recommendations: [{ job_id, match_score, reason_text }] }
-
-POST /sessions
-  - 새 챗봇 세션 생성
-  - Response: { session_id: string, expires_at: datetime }
-
-DELETE /sessions/{session_id}
-  - 세션 명시적 종료
-
-GET  /health
-  - 헬스체크 (liveness/readiness)
-
-GET  /metrics
-  - Prometheus 메트릭
+  - 공고 TOP 10 추천 + 적합도 점수 (3단계 파이프라인)
+  - Body: { resume_materials: [...], job_posts: [...], user_preferences?: {...} }
+  - Response: { recommendations: [{ job_posting_id, job_id, match_score, reason_text }] }
 ```
 
 ### 11.3 응답 형식
 
-**이력서 수정 — Default Mode**
-```json
-{ "revised_resume": "수정된 이력서 전문" }
-```
-
-**이력서 수정 — Chatbot Mode**
+**이력서 수정 — Default Mode (`/resume/fix`)**
 ```json
 {
-  "changes": [
+  "generated_at": "2026-05-22T10:30:00+00:00",
+  "recommended_type": "JOB_FIT",
+  "versions": [
     {
-      "original": "원본 텍스트",
-      "suggested": "수정 텍스트",
-      "reason": "수정 이유",
-      "material_id": "사용한 소재 id"
+      "type": "JOB_FIT",
+      "body": {
+        "about": "자기소개 문단",
+        "experience": [{ "company": "회사명", "period": "기간", "role": "직무", "description": "상세" }],
+        "skills": ["Java", "Spring Boot"]
+      },
+      "matching_score": 88,
+      "summary": "자기소개 요약"
+    },
+    {
+      "type": "ACHIEVEMENT",
+      "body": { "about": "...", "experience": [...], "skills": [...] },
+      "matching_score": 82,
+      "summary": "..."
     }
   ]
+}
+```
+
+**이력서 수정 — Chatbot Mode (`/resume/chat`)**
+```json
+{
+  "reason": "수정 이유 설명 (255자 이하)",
+  "suggested_body": {
+    "about": "수정된 자기소개",
+    "experience": [{ "company": "회사명", "period": "기간", "role": "직무", "description": "상세" }],
+    "skills": ["Java", "Spring Boot"]
+  }
 }
 ```
 
@@ -291,7 +382,8 @@ GET  /metrics
 {
   "recommendations": [
     {
-      "job_id": "공고 ID",
+      "job_posting_id": 1,
+      "job_id": null,
       "match_score": 87.50,
       "reason_text": "경력:90, 기술스택:80, 복지:75"
     }
@@ -307,27 +399,31 @@ GET  /metrics
 
 ```
 .
-├── main.py                        # FastAPI 앱 진입점, 라우터 등록
+├── main.py                        # FastAPI 앱 진입점, 라우터 등록, /health
 ├── routers/
-│   ├── resume.py                  # /resume/fix, /resume/chat 엔드포인트
-│   └── matching.py                # /match/top10 엔드포인트
+│   ├── __init__.py                # resume_router, matching_router export
+│   ├── resume.py                  # /resume/* 엔드포인트 7개 정의
+│   └── matching.py                # /match/top10 엔드포인트 정의
 ├── services/
-│   ├── resume_fix.py              # 이력서 자동 생성 LangGraph 그래프
-│   ├── resume_chat.py             # 챗봇 교정 LangGraph 그래프
-│   ├── matching.py                # 매칭 AI LangGraph 그래프
-│   ├── llm_client.py              # ChatGroq 클라이언트 + 재시도/폴백 래퍼
-│   ├── session.py                 # Redis 세션 관리 (챗봇 모드)
-│   └── context_summarizer.py     # 토큰 예산 기반 대화 요약
+│   ├── __init__.py                # 서비스 함수 일괄 export
+│   ├── llm_client.py              # LLM 프로바이더 추상화 (get_llm_client, get_light_llm_client)
+│   ├── session_store.py           # 챗봇 세션 인메모리 관리 (InMemorySessionStore, TTL 기반)
+│   ├── resume_service.py          # chat_resume, generate_resume 구현
+│   │                              # fix_resume는 resume_service_v2에 위임
+│   ├── resume_service_v2.py       # 팩트 마스킹 + Planner + Generator + Verifier 파이프라인
+│   │                              # fix_resume_v2, generate_resume_v2
+│   ├── matching_service.py        # 3단계 매칭 파이프라인 (사전필터 → 임베딩 → LLM 스코어링)
+│   └── pdf_service.py             # PDF·텍스트·수동입력 소재 추출 (OpenRouter httpx 직접 호출)
 ├── models/
-│   ├── resume.py                  # Pydantic v2 이력서 요청/응답 모델
-│   └── matching.py                # Pydantic v2 매칭 요청/응답 모델
-├── utils/
-│   ├── logging.py                 # 구조화 로깅 (JSON), PII 마스킹
-│   ├── metrics.py                 # Prometheus 메트릭 정의
-│   └── fact_check.py             # 할루시네이션 방지 검증 유틸
-└── tests/
-    ├── unit/                      # LLM 목킹, 서비스 로직 테스트
-    └── integration/               # 실제 Groq API 호출 E2E 테스트
+│   ├── __init__.py                # 모든 Pydantic 모델 일괄 export
+│   ├── resume.py                  # ResumeMaterial, JobPost, UserProfile, Fix/Chat/Generate 모델
+│   ├── matching.py                # UserPreferences, MatchRequest, Recommendation, MatchResponse
+│   └── pdf.py                     # MaterialType(Enum), ExtractedMaterial, ManualExtractedMaterial 등
+└── utils/
+    ├── __init__.py
+    └── fact_check.py              # 할루시네이션 방지 유틸
+                                   # build_context_block, llm_verify_against_materials
+                                   # extract_fact_tokens, mask_materials, unmask_text, verify_facts_present
 ```
 
 ---
@@ -338,11 +434,13 @@ GET  /metrics
 |------|------|------|
 | 웹 프레임워크 | FastAPI | |
 | 데이터 유효성 검사 | Pydantic v2 (완전한 타입 힌트) | |
-| LLM 프로바이더 | Groq API (`llama-3.3-70b-versatile`) | 현재 기본 |
-| LLM SDK | `langchain-groq` (`ChatGroq`) | |
-| 에이전트 오케스트레이션 | LangChain / LangGraph | |
+| 메인 LLM | Groq API (`llama-3.3-70b-versatile`) | 이력서 생성·교정·매칭 |
+| 소재 추출 LLM | OpenRouter (`anthropic/claude-opus-4`) | PDF·텍스트·수동입력 추출 |
+| LLM SDK | `langchain-groq` (`ChatGroq`), `langchain-openai` (`ChatOpenAI`) | |
+| HTTP 클라이언트 | `httpx` | OpenRouter 직접 호출 |
+| 오케스트레이션 | LangChain (직접 ainvoke, LangGraph 미사용) | |
 | 환경변수 | `python-dotenv` | |
-| 세션 스토어 | Redis (`redis-py` 비동기) | 챗봇 모드 |
+| 세션 스토어 | `InMemorySessionStore` (현재) / Redis 교체 가능 | 챗봇 모드 |
 | 메트릭 | `prometheus-fastapi-instrumentator` | |
 | 로깅 | `structlog` (JSON 구조화) | |
 | 테스트 | `pytest` + `pytest-asyncio` + `respx` (HTTP 목킹) | |
@@ -351,12 +449,20 @@ GET  /metrics
 
 ### 환경변수 (.env)
 
-| 변수명 | 필수 | 설명 |
-|--------|------|------|
-| `GROQ_API_KEY` | **필수** | Groq API 키 (절대 코드에 직접 작성 금지) |
-| `REDIS_URL` | 선택 | Redis 연결 URL (챗봇 모드 사용 시 필수) |
-| `ANTHROPIC_API_KEY` | 선택 | 향후 Claude로 전환 시 — `llm_client.py`에서 이 키가 있으면 자동으로 Claude 사용 |
-| `OPENAI_API_KEY` | 선택 | 향후 GPT로 전환 시 동일한 방식 |
+| 변수명 | 필수 | 기본값 | 설명 |
+|--------|------|--------|------|
+| `GROQ_API_KEY` | **필수** | — | Groq API 키 (절대 코드에 직접 작성 금지) |
+| `LLM_PROVIDER` | 선택 | `"groq"` | `"groq"` 또는 `"openrouter"` |
+| `GROQ_MODEL` | 선택 | `"llama-3.3-70b-versatile"` | 메인 LLM 모델 |
+| `GROQ_LIGHT_MODEL` | 선택 | GROQ_MODEL 값 | Planner용 경량 모델 (미설정 시 메인 모델과 동일) |
+| `VERIFY_MODEL` | 선택 | `"llama-3.1-8b-instant"` | 검증 전용 LLM 모델 (Groq) |
+| `OPENROUTER_API_KEY` | 선택* | — | OpenRouter API 키 (*소재 추출·매칭 임베딩 사용 시 필수) |
+| `OPENROUTER_MODEL` | 선택 | `"anthropic/claude-opus-4"` | OpenRouter 메인 모델 |
+| `OPENROUTER_LIGHT_MODEL` | 선택 | OPENROUTER_MODEL 값 | OpenRouter 경량 모델 |
+| `PDF_EXTRACT_MODEL` | 선택 | OPENROUTER_MODEL 값 | PDF 추출 전용 모델 |
+| `TEXT_EXTRACT_MODEL` | 선택 | PDF_EXTRACT_MODEL 값 | Notion 텍스트 추출 전용 모델 |
+| `MANUAL_EXTRACT_MODEL` | 선택 | TEXT_EXTRACT_MODEL 값 | 수동 입력 추출 전용 모델 |
+| `SESSION_TTL_SECONDS` | 선택 | `3600` | 챗봇 세션 유지 시간(초) |
 
 > 프로바이더 전환은 `services/llm_client.py` 하나만 수정하면 됨. 나머지 서비스 코드는 변경 불필요.
 
@@ -370,7 +476,7 @@ GET  /metrics
 - **가상환경 위치**: `../knu_python/.venv` — 실행 전 반드시 활성화
 - **배포 환경 미확정**: Docker Compose(단일 서버) 또는 Kubernetes 중 추후 결정.
   - 컨테이너화는 기본 전제 (Dockerfile 작성).
-  - Redis는 사이드카 또는 외부 관리형 서비스.
+  - 세션 스토어를 Redis로 전환 시 사이드카 또는 외부 관리형 서비스로 운영.
 
 ---
 
@@ -390,6 +496,6 @@ GET  /metrics
 |------|------|-----------|
 | 배포 환경 | 미정 | 팀 인프라 현황에 따라 Docker Compose → K8s 마이그레이션 가능 |
 | PII 마스킹 레벨 | 미정 | 법무/컴플라이언스 요구사항 확인 필요 |
-| Redis 세션 TTL | 기본 1시간 | 사용자 패턴 관찰 후 조정 |
+| 세션 스토어 교체 | InMemorySessionStore (현재) | 운영 환경 안정화 후 Redis 전환 검토 |
 | 프롬프트 버전 관리 | Git으로 관리 | 운영 중 빈번한 수정이 필요해지면 DB 저장으로 전환 검토 |
 | LLM 프로바이더 전환 시점 | Groq 사용 중 | 성능·비용·기능 필요 시 `llm_client.py` 교체로 전환 |
