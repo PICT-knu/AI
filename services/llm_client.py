@@ -69,3 +69,35 @@ def get_light_llm_client(temperature: float = 0.1) -> BaseChatModel:
         model=groq_model,
         temperature=temperature,
     )
+
+
+def get_verifier_llm_client() -> BaseChatModel:
+    """
+    할루시네이션 검증 전용 클라이언트 (temperature=0.0 고정).
+    생성 모델과 다른 소형 모델을 사용해 Self-Verification Bias 감소.
+    - openrouter: VERIFY_MODEL (기본: meta-llama/llama-3.1-8b-instruct)
+    - groq:       VERIFY_MODEL (기본: llama-3.1-8b-instant)
+    """
+    provider = os.getenv("LLM_PROVIDER", "groq").lower()
+
+    if provider == "openrouter":
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        model = os.getenv("VERIFY_MODEL", "meta-llama/llama-3.1-8b-instruct")
+        if not api_key:
+            raise ValueError("OPENROUTER_API_KEY가 .env에 설정되지 않았습니다.")
+        return ChatOpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key,
+            model=model,
+            temperature=0.0,
+        )
+
+    api_key = os.getenv("GROQ_API_KEY")
+    model = os.getenv("VERIFY_MODEL", "llama-3.1-8b-instant")
+    if not api_key:
+        raise ValueError("GROQ_API_KEY가 .env에 설정되지 않았습니다.")
+    return ChatGroq(
+        api_key=api_key,
+        model=model,
+        temperature=0.0,
+    )

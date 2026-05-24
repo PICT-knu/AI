@@ -6,7 +6,6 @@ import re
 from datetime import datetime, timezone
 
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
-from langchain_groq import ChatGroq
 
 from models import (
     ResumeMaterial,
@@ -19,7 +18,7 @@ from models import (
     ResumeChatResponse,
     ResumeGenerateResponse,
 )
-from services.llm_client import get_llm_client, get_light_llm_client
+from services.llm_client import get_llm_client, get_light_llm_client, get_verifier_llm_client
 from services.session_store import session_store
 from utils.fact_check import (
     build_context_block,
@@ -56,12 +55,7 @@ _VERSION_STYLES = {
 
 
 def _get_verifier_llm():
-    """검증 전용 LLM. 생성 모델과 다른 아키텍처로 Self-Verification Bias 감소."""
-    return ChatGroq(
-        api_key=os.getenv("GROQ_API_KEY"),
-        model=os.getenv("VERIFY_MODEL", "llama-3.1-8b-instant"),
-        temperature=0.0,
-    )
+    return get_verifier_llm_client()
 
 
 async def _ainvoke(llm, messages: list):
