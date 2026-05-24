@@ -9,7 +9,10 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy to EC2
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: EC2에 파일 전송 (rsync)
         env:
           PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
           EC2_HOST_RAW: ${{ secrets.EC2_HOST }}
@@ -21,10 +24,24 @@ jobs:
           EC2_HOST=$(echo "$EC2_HOST_RAW" | tr -d '[:space:]')
           EC2_USER=$(echo "$EC2_USER_RAW" | tr -d '[:space:]')
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
-          ssh -i ~/.ssh/deploy_key -l "$EC2_USER" "$EC2_HOST" << 'EOF'
+          rsync -avz --exclude '.git' --exclude '.env' \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
+            ./ "$EC2_USER@$EC2_HOST:~/AI/"
+
+      - name: Docker 재시작
+        env:
+          PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_HOST_RAW: ${{ secrets.EC2_HOST }}
+          EC2_USER_RAW: ${{ secrets.EC2_USERNAME }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          EC2_HOST=$(echo "$EC2_HOST_RAW" | tr -d '[:space:]')
+          EC2_USER=$(echo "$EC2_USER_RAW" | tr -d '[:space:]')
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key "$EC2_USER@$EC2_HOST" << 'EOF'
             set -e
             cd ~/AI
-            git pull origin main
-            which docker-compose && sudo docker-compose up -d --build || echo "docker-compose not found"
-            docker --version || echo "docker not found"
+            sudo docker-compose up -d --build
           EOF
