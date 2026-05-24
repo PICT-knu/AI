@@ -387,7 +387,7 @@ POST /match/top10
 ├── main.py                        # FastAPI 앱 진입점, 라우터 등록, /health
 ├── routers/
 │   ├── __init__.py                # resume_router, matching_router export
-│   ├── resume.py                  # /resume/* 엔드포인트 6개 정의
+│   ├── resume.py                  # /resume/* 엔드포인트 5개 정의
 │   └── matching.py                # /match/top10 엔드포인트 정의
 ├── services/
 │   ├── __init__.py                # 서비스 함수 일괄 export
@@ -418,7 +418,7 @@ POST /match/top10
 | 웹 프레임워크 | FastAPI | |
 | 데이터 유효성 검사 | Pydantic v2 (완전한 타입 힌트) | |
 | 메인 LLM | Groq API (`llama-3.3-70b-versatile`) | 이력서 생성·교정·매칭 |
-| 소재 추출 LLM | OpenRouter (`anthropic/claude-opus-4`) | PDF·텍스트·수동입력 추출 |
+| 소재 추출 LLM | OpenRouter (`anthropic/claude-opus-4`) | PDF·텍스트 추출 |
 | LLM SDK | `langchain-groq` (`ChatGroq`), `langchain-openai` (`ChatOpenAI`) | |
 | HTTP 클라이언트 | `httpx` | OpenRouter 직접 호출 |
 | 오케스트레이션 | LangChain (직접 ainvoke, LangGraph 미사용) | |

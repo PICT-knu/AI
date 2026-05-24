@@ -305,20 +305,9 @@ DB에서 소재 조회 ("{title} — {summary}" → content 매핑)
     },
     {
       "type": "ACHIEVEMENT",
-      "body": {
-        "about": "월 500만 건 트래픽 처리 시스템 설계, 배포 자동화로 배포 시간 70% 단축 등 수치화된 성과를 보유한 백엔드 개발자입니다.",
-        "experience": [
-          {
-            "company": "삼성SDS",
-            "period": "2020.05 ~ 2023.08",
-            "role": "백엔드 개발자",
-            "description": "월 500만 건 트래픽 처리 시스템 설계·운영. Jenkins+Docker+Kubernetes 도입으로 배포 시간 70% 단축. 마이크로서비스 7개 모듈 설계 리드."
-          }
-        ],
-        "skills": ["Java", "Spring Boot", "Kubernetes", "Docker", "MySQL", "Redis", "AWS"]
-      },
+      "body": { "about": "...", "experience": [...], "skills": [...] },
       "matching_score": 82,
-      "summary": "월 500만 건 트래픽 처리 시스템 설계, 배포 자동화로 배포 시간 70% 단축 등 수치화된 성과를 보유한 백엔드 개발자입니다."
+      "summary": "..."
     }
   ]
 }
@@ -340,15 +329,6 @@ DB에서 소재 조회 ("{title} — {summary}" → content 매핑)
 |------|------|
 | `JOB_FIT` | 공고 요구사항을 직접 매핑하고 직무 키워드를 강조. 채용 담당자가 JD 체크리스트를 보듯 읽을 수 있도록 구성 |
 | `ACHIEVEMENT` | 수치와 성과를 중심으로 임팩트 있는 표현. 구체적인 수치(%, 건수, 규모)를 최대한 활용 |
-
-#### 처리 흐름
-
-1. 소재에서 팩트 토큰 추출 → 소재 마스킹 (할루시네이션 방지)
-2. Planner LLM이 섹션 구성·강조점·문체 계획 수립
-3. JOB_FIT · ACHIEVEMENT 두 버전을 병렬(asyncio.gather) 생성
-4. 각 버전: 언마스킹 → 팩트 검증 + LLM 할루시네이션 검증 → 실패 시 1회 재시도
-5. 각 버전의 `matching_score` LLM 산출 (0~100)
-6. 높은 점수 버전을 `recommended_type`으로 지정
 
 ---
 
@@ -437,12 +417,7 @@ DB에서 소재 조회 ("{title} — {summary}" → content 매핑)
 | `reason` | 수정 이유 설명 (255자 이하). BE1 DB 컬럼 길이 제한에 맞춰 자동 절사됨 |
 | `suggested_body` | AI가 제안하는 수정된 이력서 본문 (ResumeBody 구조). BE1이 받아서 tailored_resume에 저장 |
 
-#### 세션 관리
-
-- 세션 TTL: **1시간** (마지막 요청 기준으로 갱신)
-- 세션 만료 후 `session_id` + `current_body` 재전송 시 `current_body` + `resume_materials`로 컨텍스트를 자동 복원
-- `current_body` 없이 만료된 세션을 재전송하면 소재(`resume_materials`)만으로 컨텍스트 재구성
-- 대화 이력이 20개 메시지를 초과하면 서버가 자동으로 이전 내용을 요약 압축 (클라이언트 투명)
+> **세션**: TTL 1시간 (마지막 요청 기준 갱신). 만료 후 동일 `session_id` + `current_body` 재전송 시 자동 복원. 대화 이력 20개 초과 시 서버가 자동 요약.
 
 ---
 
@@ -493,25 +468,18 @@ DB에서 소재 조회 ("{title} — {summary}" → content 매핑)
 }
 ```
 
-**UserProfile 필드**
+**요청 필드**
 
 | 필드 | 필수 | 설명 |
 |------|------|------|
-| `career_level` | 선택 | 경력 단계. 예: `"신입"`, `"1-3년"`, `"3-5년"` |
-| `degree_type` | 선택 | 대학 유형. 예: `"4년제"`, `"2/3년제"`, `"대학원"` |
-| `graduation_status` | 선택 | 졸업 여부. 예: `"졸업"`, `"재학중"`, `"졸업예정"` |
-| `school_name` | 선택 | 학교명. 예: `"국립공주대학교"` |
-| `major` | 선택 | 전공. 예: `"컴퓨터공학"` |
-| `enrollment_year` | 선택 | 입학년도. 예: `"2022"` |
-| `graduation_year` | 선택 | 졸업(예정)년도. 예: `"2026"` |
-
-> 모든 `user_profile` 필드는 선택 항목입니다. 값이 없으면 빈 문자열(`""`)로 전달하거나 생략 가능.
-
-**요청 Body 필드**
-
-| 필드 | 필수 | 설명 |
-|------|------|------|
-| `user_profile` | **필수** | 사용자 기본 프로필 (학력, 경력 단계 등). 이력서 헤더 및 자기소개 섹션에 반영됨 |
+| `user_profile` | **필수** | 사용자 기본 프로필. 모든 하위 필드는 선택 (없으면 `""` 또는 생략) |
+| `user_profile.career_level` | 선택 | 경력 단계. 예: `"신입"`, `"1-3년"` |
+| `user_profile.degree_type` | 선택 | 대학 유형. 예: `"4년제"`, `"2/3년제"` |
+| `user_profile.graduation_status` | 선택 | 졸업 여부. 예: `"졸업"`, `"재학중"`, `"졸업예정"` |
+| `user_profile.school_name` | 선택 | 학교명. 예: `"국립공주대학교"` |
+| `user_profile.major` | 선택 | 전공. 예: `"컴퓨터공학"` |
+| `user_profile.enrollment_year` | 선택 | 입학년도. 예: `"2022"` |
+| `user_profile.graduation_year` | 선택 | 졸업(예정)년도. 예: `"2026"` |
 | `resume_materials` | **필수** | 이력서 소재 목록. **1개 이상 필수** (빈 배열 시 422 반환) |
 | `job_post` | **필수** | 타겟 채용 공고. 초안 방향성을 결정함 |
 
@@ -640,12 +608,9 @@ Notion 페이지 본문 또는 사용자가 직접 작성한 텍스트를 소재
     }
   ],
   "user_preferences": {
-    "avoidance_options": ["야근", "주말근무"],
-    "avoidance_cert_text": "",
-    "avoidance_skill_text": "",
+    "avoidance_options": ["계약직 제외", "주말 근무 제외"],
     "preferred_locations": ["서울", "경기"],
     "experience_level": "경력",
-    "preferred_job_rank": "대리",
     "preferred_company_sizes": ["대기업", "중견기업"],
     "preferred_benefits": ["재택근무", "유연근무"]
   }
@@ -656,7 +621,7 @@ Notion 페이지 본문 또는 사용자가 직접 작성한 텍스트를 소재
 
 | 필드 | 필수 | 설명 |
 |------|------|------|
-| `avoidance_options` | 선택 | 기피 조건 키워드 목록. 허용값: `"야근"`, `"주말근무"`, `"교대근무"`, `"해외출장"`, `"잦은출장"` |
+| `avoidance_options` | 선택 | 기피 조건 고정 선택지 목록. 허용값: `"계약직 제외"`, `"경력직만 채용 제외"`, `"주말 근무 제외"`, `"교대/야간 근무 제외"`, `"잦은 출장 제외"`, `"포트폴리오 필수 제외"`, `"사전 과제 있음 제외"`, `"고객 응대 중심 제외"` |
 | `avoidance_cert_text` | 선택 | 기피할 자격증 요구 조건 자유 텍스트 (예: `"정보처리기사 필수"`) |
 | `avoidance_skill_text` | 선택 | 기피할 기술 요구 조건 자유 텍스트 (예: `"COBOL"`) |
 | `preferred_locations` | 선택 | 선호 근무 지역 목록 (예: `["서울", "경기"]`) |
@@ -698,14 +663,6 @@ Notion 페이지 본문 또는 사용자가 직접 작성한 텍스트를 소재
 | `recommendations[].job_id` | 하위 호환용. `job_posting_id` 사용 권장 |
 | `recommendations[].match_score` | 적합도 점수. 범위: `0.0 ~ 100.0`. 소수점 2자리. 점수가 높을수록 적합 |
 | `recommendations[].reason_text` | 점수 산정 근거 요약. 형식 예시: `"경력:90, 기술스택:80, 복지:75"`. 사용자에게 그대로 표시 가능 |
-
-#### 처리 흐름
-
-1. `user_preferences.avoidance_options` + `preferred_locations` 기준으로 기피 공고 사전 제거
-2. 임베딩 유사도 기반 상위 25개 후보 추출 (temperature: 0.0)
-3. 후보 공고를 LLM으로 병렬 점수 계산 (temperature: 0.1 — 일관성 최우선)
-4. 점수 내림차순 정렬 후 상위 10개 반환
-5. 특정 공고 처리 실패 시 해당 공고는 건너뛰고 나머지 결과만 반환 (부분 성공 가능)
 
 ---
 
