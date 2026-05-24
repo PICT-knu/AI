@@ -60,7 +60,7 @@ class ResumeChatRequest(BaseModel):
     session_id: Optional[str] = Field(default=None, description="세션 ID (BE1 제공 숫자 문자열 또는 없음)")
     tailored_resume_id: Optional[int] = Field(default=None, description="tailored_resume PK (BE1)")
     message: str = Field(description="사용자 메시지")
-    current_body: Optional[dict] = Field(default=None, description="현재 이력서 body (ResumeBody 구조, BE1 확인 후 Optional[ResumeBody]로 교체 예정)")
+    current_body: Optional[ResumeBody] = Field(default=None, description="현재 이력서 body")
     resume_materials: list[ResumeMaterial]
     job_post: Optional[JobPost] = Field(default=None)
 

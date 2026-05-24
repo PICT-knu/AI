@@ -93,10 +93,10 @@ def _build_chat_system_prompt(materials: list[ResumeMaterial], job_post: JobPost
     )
 
 
-def _build_initial_context(current_body: dict | None, materials: list[ResumeMaterial]) -> str:
+def _build_initial_context(current_body: ResumeBody | None, materials: list[ResumeMaterial]) -> str:
     parts: list[str] = []
     if current_body:
-        parts.append(f"[현재 이력서 본문]\n{json.dumps(current_body, ensure_ascii=False, indent=2)}")
+        parts.append(f"[현재 이력서 본문]\n{json.dumps(current_body.model_dump(), ensure_ascii=False, indent=2)}")
     context = build_context_block(materials)
     if context:
         parts.append(context)
@@ -392,7 +392,7 @@ async def generate_resume(
 async def chat_resume(
     session_id: str | None,
     message: str,
-    current_body: dict | None,
+    current_body: ResumeBody | None,
     materials: list[ResumeMaterial],
     job_post: JobPost | None,
 ) -> ResumeChatResponse:
