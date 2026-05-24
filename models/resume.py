@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 class ResumeMaterial(BaseModel):
     material_type: str = Field(description="소재 유형 (예: EXPERIENCE, PROJECT, SKILL)")
     title: Optional[str] = Field(default=None, description="소재 제목")
-    content: str = Field(description="소재 내용")
+    content: str = Field(min_length=1, description="소재 내용")
     summary: Optional[str] = Field(default=None, description="소재 요약")
     material_id: Optional[str] = Field(description="소재 고유 ID", default=None)
 
@@ -46,7 +46,7 @@ class ResumeVersion(BaseModel):
 class ResumeFixRequest(BaseModel):
     member_id: Optional[int] = Field(default=None, description="회원 PK (BE1)")
     job_posting_id: Optional[int] = Field(default=None, description="공고 PK (BE1)")
-    resume_materials: list[ResumeMaterial]
+    resume_materials: list[ResumeMaterial] = Field(min_length=1)
     job_post: JobPost
 
 
@@ -59,9 +59,9 @@ class ResumeFixResponse(BaseModel):
 class ResumeChatRequest(BaseModel):
     session_id: Optional[str] = Field(default=None, description="세션 ID (BE1 제공 숫자 문자열 또는 없음)")
     tailored_resume_id: Optional[int] = Field(default=None, description="tailored_resume PK (BE1)")
-    message: str = Field(description="사용자 메시지")
+    message: str = Field(min_length=1, description="사용자 메시지")
     current_body: Optional[ResumeBody] = Field(default=None, description="현재 이력서 body")
-    resume_materials: list[ResumeMaterial]
+    resume_materials: list[ResumeMaterial] = Field(min_length=1)
     job_post: Optional[JobPost] = Field(default=None)
 
 
@@ -82,7 +82,7 @@ class UserProfile(BaseModel):
 
 class ResumeGenerateRequest(BaseModel):
     user_profile: UserProfile = Field(default_factory=UserProfile)
-    resume_materials: list[ResumeMaterial]
+    resume_materials: list[ResumeMaterial] = Field(min_length=1)
     job_post: JobPost
 
 

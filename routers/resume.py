@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from models import (
@@ -18,6 +20,8 @@ async def resume_fix(req: ResumeFixRequest) -> ResumeFixResponse:
     """이력서 자동 생성 (Default Mode, Stateless)."""
     try:
         return await fix_resume(req.resume_materials, req.job_post)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="AI 처리 시간 초과")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -33,6 +37,8 @@ async def resume_chat(req: ResumeChatRequest) -> ResumeChatResponse:
             materials=req.resume_materials,
             job_post=req.job_post,
         )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="AI 처리 시간 초과")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -42,6 +48,8 @@ async def resume_generate(req: ResumeGenerateRequest) -> ResumeGenerateResponse:
     """1클릭 이력서 초안 생성. 유저 프로필 + 소재 + 공고 JD 기반 맞춤형 이력서 전문 생성."""
     try:
         return await generate_resume(req.user_profile, req.resume_materials, req.job_post)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="AI 처리 시간 초과")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

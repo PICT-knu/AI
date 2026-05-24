@@ -16,6 +16,7 @@ from utils.fact_check import build_context_block
 logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 10
+_LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT_SECONDS", "90"))
 
 # 피하고 싶어요 고정 선택지 → 검사 키워드 매핑
 AVOIDANCE_KEYWORD_MAP: dict[str, list[str]] = {
@@ -206,7 +207,7 @@ async def _score_batch(
                 content=f"{batch_text}\n\n위 공고들의 적합도 점수를 JSON 배열로 반환하십시오."
             ),
         ]
-        response = await llm.ainvoke(messages)
+        response = await asyncio.wait_for(llm.ainvoke(messages), timeout=_LLM_TIMEOUT)
         return _parse_scores(response.content)
     except Exception as e:
         logger.warning("배치 처리 실패 (건너뜀): %s", e)

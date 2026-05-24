@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 _MAX_HISTORY_MESSAGES = 20
 _SUMMARY_KEEP_MESSAGES = 6
+_LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT_SECONDS", "90"))
 
 _EXPLICIT_RULES = (
     "\n[작성 지시사항]\n"
@@ -61,6 +62,11 @@ def _get_verifier_llm():
         model=os.getenv("VERIFY_MODEL", "llama-3.1-8b-instant"),
         temperature=0.0,
     )
+
+
+async def _ainvoke(llm, messages: list):
+    """LLM 호출 + 타임아웃. 초과 시 asyncio.TimeoutError 발생."""
+    return await asyncio.wait_for(llm.ainvoke(messages), timeout=_LLM_TIMEOUT)
 
 
 # ── 챗봇 모드 헬퍼 ────────────────────────────────────────────────────────────
@@ -131,7 +137,7 @@ async def _summarize_history(history: list[dict], llm) -> list[dict]:
     summary_prompt = "다음 대화 이력을 한국어로 간결하게 요약하십시오:\n\n"
     for msg in old:
         summary_prompt += f"{msg['role'].upper()}: {msg['content']}\n"
-    summary_msg = await llm.ainvoke([HumanMessage(content=summary_prompt)])
+    summary_msg = await _ainvoke(llm, [HumanMessage(content=summary_prompt)])
     summary_text = f"[이전 대화 요약]\n{summary_msg.content}"
     return [{"role": "system", "content": summary_text}] + recent
 
@@ -185,7 +191,7 @@ async def _plan_resume(masked_materials: list[ResumeMaterial], job_post: JobPost
         '  "material_strategy": {"소재 요약": "활용할 섹션"}\n'
         "}"
     )
-    resp = await llm.ainvoke([HumanMessage(content=prompt)])
+    resp = await _ainvoke(llm, [HumanMessage(content=prompt)])
     plan = _parse_plan(resp.content)
     if not plan:
         plan = {
@@ -265,7 +271,7 @@ async def _generate_version(
     if issue_note:
         user_msg += f"\n\n주의: 이전 생성에서 아래 문제가 감지되었습니다. 반드시 수정하십시오:\n{issue_note}"
 
-    resp = await llm.ainvoke([
+    resp = await _ainvoke(llm, [
         SystemMessage(content=system_prompt),
         HumanMessage(content=user_msg),
     ])
@@ -279,7 +285,7 @@ async def _score_version(version_text: str, job_post: JobPost, llm) -> int:
         f"[이력서]\n{version_text}\n\n"
         "위 이력서가 채용 공고의 요구사항을 얼마나 충족하는지 0~100 정수로만 답하라. 다른 텍스트 없음."
     )
-    resp = await llm.ainvoke([HumanMessage(content=prompt)])
+    resp = await _ainvoke(llm, [HumanMessage(content=prompt)])
     match = re.search(r"\d+", resp.content.strip())
     if match:
         return min(100, max(0, int(match.group())))
@@ -423,7 +429,7 @@ async def chat_resume(
             messages.append(SystemMessage(content=msg["content"]))
     messages.append(HumanMessage(content=message))
 
-    response = await llm.ainvoke(messages)
+    response = await _ainvoke(llm, messages)
     ai_text = response.content
 
     session_store.append(sid, "user", message)
