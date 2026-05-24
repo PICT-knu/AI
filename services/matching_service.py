@@ -149,14 +149,15 @@ def _build_score_prompt(
 - JSON 배열 하나만 출력한다. 다른 텍스트나 마크다운을 포함하지 않는다.
 - 첫 글자는 반드시 [ 이고 마지막 글자는 반드시 ] 이다.
 - 전달된 모든 공고에 대해 빠짐없이 점수를 계산한다. Top N 선택은 하지 않는다.
-- 스키마: [{{"job_id": "공고 ID", "match_score": 87.50, "reason_text": "경력:90, 기술스택:80, 복지:75"}}]
+- 스키마: [{{"job_posting_id": <공고 ID>, "match_score": 87.50, "reason_text": "경력:90, 기술스택:80, 복지:75"}}]
 - match_score는 0~100 사이 소수점 2자리 숫자이다."""
 
 
 def _format_batch(batch: list[JobPost]) -> str:
     lines = ["[평가 대상 채용 공고]"]
     for jp in batch:
-        lines.append(f"\n## job_id: {jp.job_id}")
+        jid = jp.job_posting_id if jp.job_posting_id is not None else jp.job_id
+        lines.append(f"\n## job_posting_id: {jid}")
         lines.append(f"- 공고 설명: {jp.description}")
         lines.append(f"- 경력 조건: {jp.experience_text}")
         lines.append(f"- 학력 조건: {jp.education_text}")
@@ -181,13 +182,20 @@ def _parse_scores(text: str) -> list[Recommendation]:
     result = []
     for item in raw:
         try:
-            result.append(
-                Recommendation(
-                    job_id=str(item["job_id"]),
+            raw_id = item["job_posting_id"]
+            try:
+                rec = Recommendation(
+                    job_posting_id=int(raw_id),
                     match_score=float(item["match_score"]),
                     reason_text=str(item.get("reason_text", "")),
                 )
-            )
+            except (ValueError, TypeError):
+                rec = Recommendation(
+                    job_id=str(raw_id),
+                    match_score=float(item["match_score"]),
+                    reason_text=str(item.get("reason_text", "")),
+                )
+            result.append(rec)
         except (KeyError, ValueError):
             continue
     return result
