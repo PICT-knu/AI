@@ -130,6 +130,8 @@ async def extract_materials_from_pdf(pdf_bytes: bytes, filename: str) -> PdfExtr
         resp.raise_for_status()
 
     raw = resp.json()["choices"][0]["message"]["content"]
+    if not raw:
+        raise ValueError(f"OpenRouter returned empty content (model={model})")
     parsed = raw if isinstance(raw, dict) else json.loads(raw)
     return PdfExtractResponse.model_validate(parsed)
 
@@ -180,6 +182,8 @@ async def extract_materials_from_text(text: str) -> PdfExtractResponse:
         resp.raise_for_status()
 
     raw = resp.json()["choices"][0]["message"]["content"]
+    if not raw:
+        raise ValueError(f"OpenRouter returned empty content (model={model})")
     parsed = raw if isinstance(raw, dict) else json.loads(raw)
     return PdfExtractResponse.model_validate(parsed)
 
