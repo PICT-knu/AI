@@ -4,7 +4,8 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
 
-load_dotenv()
+load_dotenv('config.env')   # 공개 설정 (git 추적)
+load_dotenv(override=True)  # API 키 (.env, gitignore) — 같은 변수명이면 .env 우선
 
 
 def get_llm_client(temperature: float = 0.6) -> BaseChatModel: #temperature 변경 시 정확도와 창의성의 비율을 조절 가능
