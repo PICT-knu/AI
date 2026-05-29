@@ -26,6 +26,7 @@ def get_llm_client(temperature: float = 0.6) -> BaseChatModel: #temperature 변�
             api_key=api_key,
             model=model,
             temperature=temperature,
+            timeout=120,
         )
 
     # 기본값: groq
@@ -37,6 +38,7 @@ def get_llm_client(temperature: float = 0.6) -> BaseChatModel: #temperature 변�
         api_key=api_key,
         model=groq_model,
         temperature=temperature,
+        request_timeout=120,
     )
 
 
@@ -59,6 +61,7 @@ def get_light_llm_client(temperature: float = 0.1) -> BaseChatModel:
             api_key=api_key,
             model=model,
             temperature=temperature,
+            timeout=120,
         )
 
     api_key = os.getenv("GROQ_API_KEY")
@@ -69,6 +72,7 @@ def get_light_llm_client(temperature: float = 0.1) -> BaseChatModel:
         api_key=api_key,
         model=groq_model,
         temperature=temperature,
+        request_timeout=120,
     )
 
 
@@ -91,6 +95,7 @@ def get_verifier_llm_client() -> BaseChatModel:
             api_key=api_key,
             model=model,
             temperature=0.0,
+            timeout=120,
         )
 
     api_key = os.getenv("GROQ_API_KEY")
@@ -101,4 +106,5 @@ def get_verifier_llm_client() -> BaseChatModel:
         api_key=api_key,
         model=model,
         temperature=0.0,
+        request_timeout=120,
     )

@@ -35,12 +35,6 @@ _MAX_HISTORY_MESSAGES = 20
 _SUMMARY_KEEP_MESSAGES = 6
 _LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT_SECONDS", "90"))
 
-_EXPLICIT_RULES = (
-    "\n[작성 지시사항]\n"
-    "1. 제공된 소재 이외의 내용을 절대 추가하지 마십시오.\n"
-    "2. 공고의 요구 역량에 맞는 소재를 우선 배치하십시오.\n"
-    "3. 완성된 이력서를 JSON 형식으로 반환하십시오."
-)
 
 _VERSION_STYLES = {
     "JOB_FIT": (
@@ -58,9 +52,10 @@ def _get_verifier_llm():
     return get_verifier_llm_client()
 
 
-async def _ainvoke(llm, messages: list):
-    """LLM 호출 + 타임아웃. 초과 시 asyncio.TimeoutError 발생."""
-    return await asyncio.wait_for(llm.ainvoke(messages), timeout=_LLM_TIMEOUT)
+async def _ainvoke(llm, messages: list, json_mode: bool = False):
+    """LLM 호출 + 타임아웃. json_mode=True이면 response_format JSON object 강제."""
+    bound = llm.bind(response_format={"type": "json_object"}) if json_mode else llm
+    return await asyncio.wait_for(bound.ainvoke(messages), timeout=_LLM_TIMEOUT)
 
 
 # ── 챗봇 모드 헬퍼 ────────────────────────────────────────────────────────────
@@ -185,7 +180,7 @@ async def _plan_resume(masked_materials: list[ResumeMaterial], job_post: JobPost
         '  "material_strategy": {"소재 요약": "활용할 섹션"}\n'
         "}"
     )
-    resp = await _ainvoke(llm, [HumanMessage(content=prompt)])
+    resp = await _ainvoke(llm, [HumanMessage(content=prompt)], json_mode=True)
     plan = _parse_plan(resp.content)
     if not plan:
         plan = {
@@ -203,7 +198,6 @@ def _build_generator_prompt(
     plan: dict,
     version_style: str,
     extra_context: str = "",
-    include_rules: bool = False,
 ) -> str:
     context = build_context_block(masked_materials)
     sections = plan.get("sections", [])
@@ -237,13 +231,14 @@ def _build_generator_prompt(
         f"섹션별 강조점:\n{section_guide}\n"
         f"문체 지침: {style_guide}\n\n"
         "[출력 형식 — 반드시 준수]\n"
-        "아래 JSON 스키마를 정확히 따르라. 다른 텍스트를 포함하지 마라:\n"
+        "- JSON 객체 하나만 출력한다. 다른 텍스트나 마크다운 코드 블록을 절대 포함하지 않는다.\n"
+        "- 첫 글자는 반드시 { 이고 마지막 글자는 반드시 } 이다.\n"
+        "- 제공된 소재 이외의 내용을 절대 추가하지 마십시오.\n"
+        "- 스키마:\n"
         '{"about": "자기소개 문단", '
         '"experience": [{"company": "회사명", "period": "기간", "role": "직무", "description": "상세 내용"}], '
         '"skills": ["기술1", "기술2"]}'
     )
-    if include_rules:
-        prompt += _EXPLICIT_RULES
     return prompt
 
 
@@ -255,11 +250,10 @@ async def _generate_version(
     llm,
     extra_context: str = "",
     issue_note: str = "",
-    include_rules: bool = False,
 ) -> str:
     style = _VERSION_STYLES[version_type]
     system_prompt = _build_generator_prompt(
-        masked_materials, job_post, plan, style, extra_context, include_rules
+        masked_materials, job_post, plan, style, extra_context
     )
     user_msg = "위 소재와 계획서를 바탕으로 이력서를 JSON 형식으로 작성해 주십시오."
     if issue_note:
@@ -268,7 +262,7 @@ async def _generate_version(
     resp = await _ainvoke(llm, [
         SystemMessage(content=system_prompt),
         HumanMessage(content=user_msg),
-    ])
+    ], json_mode=True)
     return resp.content
 
 
@@ -301,7 +295,7 @@ async def _run_version_pipeline(
     raw = await _generate_version(masked_materials, job_post, plan, version_type, main_llm, extra_context)
     unmasked = unmask_text(raw, fact_map)
 
-    facts_ok, missing_facts = verify_facts_present(unmasked, fact_map)
+    facts_ok, missing_facts = verify_facts_present(unmasked, raw, fact_map)
     all_issues: list[str] = [f"누락된 팩트: {v}" for v in missing_facts] if not facts_ok else []
 
     llm_ok, llm_issues = await llm_verify_against_materials(unmasked, original_materials, verifier_llm)
@@ -423,7 +417,7 @@ async def chat_resume(
             messages.append(SystemMessage(content=msg["content"]))
     messages.append(HumanMessage(content=message))
 
-    response = await _ainvoke(llm, messages)
+    response = await _ainvoke(llm, messages, json_mode=True)
     ai_text = response.content
 
     session_store.append(sid, "user", message)

@@ -138,11 +138,13 @@ def unmask_text(text: str, fact_map: dict[str, str]) -> str:
 
 
 def verify_facts_present(
-    text: str, fact_map: dict[str, str]
+    text: str, masked_text: str, fact_map: dict[str, str]
 ) -> tuple[bool, list[str]]:
     """
-    팩트 맵의 모든 값이 최종 텍스트에 존재하는지 Python으로 검사. LLM 호출 없음.
+    LLM이 실제로 사용한 팩트([Fx] 토큰이 masked_text에 등장한 것)만 최종 텍스트에서 검사.
+    미사용 소재의 팩트는 검사하지 않아 false positive 누락 판정을 방지.
     반환: (모두_존재, 누락된_값_목록)
     """
-    missing = [val for val in fact_map.values() if val not in text]
+    used_keys = {key for key in fact_map if f"[{key}]" in masked_text}
+    missing = [fact_map[key] for key in used_keys if fact_map[key] not in text]
     return len(missing) == 0, missing

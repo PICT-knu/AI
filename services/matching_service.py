@@ -215,7 +215,8 @@ async def _score_batch(
                 content=f"{batch_text}\n\n위 공고들의 적합도 점수를 JSON 배열로 반환하십시오."
             ),
         ]
-        response = await asyncio.wait_for(llm.ainvoke(messages), timeout=_LLM_TIMEOUT)
+        json_llm = llm.bind(response_format={"type": "json_object"})
+        response = await asyncio.wait_for(json_llm.ainvoke(messages), timeout=_LLM_TIMEOUT)
         return _parse_scores(response.content)
     except Exception as e:
         logger.warning("배치 처리 실패 (건너뜀): %s", e)
