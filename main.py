@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from routers import resume_router, matching_router
+from routers import resume_router, matching_router, jobs_router
 
 
 @asynccontextmanager
@@ -24,6 +24,7 @@ app = FastAPI(
 
 app.include_router(resume_router, prefix="/resume", tags=["resume"])
 app.include_router(matching_router, prefix="/match", tags=["matching"])
+app.include_router(jobs_router, prefix="/jobs", tags=["jobs"])
 
 
 @app.get("/health", tags=["health"])

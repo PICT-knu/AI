@@ -666,6 +666,61 @@ Notion 페이지 본문 또는 사용자가 직접 작성한 텍스트를 소재
 
 ---
 
+### `POST /jobs/detail-analysis`
+
+**채용 공고 상세 분석 (공고 상세 페이지용, 무상태)**
+
+채용 공고 원문(`description`)을 분석해 **주요 업무 / 자격 요건 / 복지·혜택** 세 가지 섹션의 문장 배열로 정리합니다.  
+공고 상세 조회 페이지의 요약 카드 렌더링에 사용합니다.
+
+#### 요청 Body
+
+```json
+{
+  "job_posting_id": 123,
+  "company_name": "Toss",
+  "title": "시니어 프론트엔드 엔지니어",
+  "description": "Toss에서 세계 최고 수준의 금융 도구를 함께 만들어갈 시니어 프론트엔드 엔지니어를 찾습니다. Toss 플랫폼의 핵심 사용자 인터페이스를 담당하며 제품 디자이너와 협업하여 차세대 금융 대시보드를 구현합니다. 자격 요건: 5년 이상의 React 및 TypeScript 대규모 서비스 개발 경험, CSS 아키텍처 및 Tailwind CSS에 대한 깊은 이해. 복지: 종합 건강 검진 지원, 400만원 장비 지원."
+}
+```
+
+| 필드 | 필수 | 설명 |
+|------|------|------|
+| `job_posting_id` | 선택 | 채용공고 PK (BE1 DB). AI 서버는 저장하지 않음, 로그 추적용 |
+| `company_name` | 선택 | 회사명. 분석 시 컨텍스트로 활용 |
+| `title` | 선택 | 공고 제목. 분석 시 컨텍스트로 활용 |
+| `description` | **필수** | 채용 공고 원문. AI의 메인 분석 대상. 빈/공백이면 LLM 호출 없이 빈 배열 반환 |
+
+#### 응답 200 OK
+
+```json
+{
+  "main_tasks": [
+    "Toss 플랫폼의 핵심 사용자 인터페이스 담당",
+    "제품 디자이너와 협업하여 차세대 금융 대시보드 구현"
+  ],
+  "qualifications": [
+    "5년 이상의 React 및 TypeScript 대규모 서비스 개발 경험",
+    "CSS 아키텍처 및 Tailwind CSS에 대한 깊은 이해"
+  ],
+  "benefits": [
+    "종합 건강 검진 지원",
+    "400만원 장비 지원"
+  ]
+}
+```
+
+| 필드 | 설명 |
+|------|------|
+| `main_tasks` | 담당할 주요 업무 문장 배열. 공고에 명시된 내용만 추출, 섹션당 최대 6개. 없으면 빈 배열 |
+| `qualifications` | 요구 자격 요건 문장 배열. 섹션당 최대 6개. 없으면 빈 배열 |
+| `benefits` | 복지·혜택 문장 배열. 섹션당 최대 6개. 없으면 빈 배열 |
+
+> 공고에 명시된 내용만 추출하며 지어내지 않습니다(할루시네이션 방지). OpenRouter JSON Schema strict 모드로 구조화 출력을 강제합니다.  
+> AI 처리 실패 시 `502` 반환 (외부 AI 서비스 오류).
+
+---
+
 ## 상태 코드 요약
 
 | 코드 | 설명 | 발생 시점 |
@@ -673,7 +728,7 @@ Notion 페이지 본문 또는 사용자가 직접 작성한 텍스트를 소재
 | `200 OK` | 성공 | 정상 처리 완료 |
 | `422 Unprocessable Entity` | 요청 유효성 오류 | 필드 누락, 타입 불일치, 빈 문자열/배열 등 |
 | `500 Internal Server Error` | 서버 오류 | LLM 호출 실패, 파싱 오류 등 |
-| `502 Bad Gateway` | 외부 AI 서비스 오류 | 소재 추출 엔드포인트(`/pdf/extract`, `/text/extract`)에서 OpenRouter 호출 실패 시 |
+| `502 Bad Gateway` | 외부 AI 서비스 오류 | 소재 추출(`/pdf/extract`, `/text/extract`)·공고 상세 분석(`/jobs/detail-analysis`)에서 OpenRouter 호출 실패 시 |
 | `504 Gateway Timeout` | LLM 응답 시간 초과 | LLM 호출이 90초(기본값) 이내 응답하지 않을 때. `LLM_TIMEOUT_SECONDS`로 변경 가능 |
 
 ---
@@ -689,3 +744,4 @@ Notion 페이지 본문 또는 사용자가 직접 작성한 텍스트를 소재
 | `POST` | `/resume/pdf/extract` | PDF 이력서 소재 추출 | 운영 중 |
 | `POST` | `/resume/text/extract` | Notion/직접입력 텍스트 소재 추출 | 운영 중 |
 | `POST` | `/match/top10` | 공고 TOP 10 추천 | 운영 중 |
+| `POST` | `/jobs/detail-analysis` | 공고 상세 분석 — 주요 업무·자격 요건·복지 추출 | 운영 중 |

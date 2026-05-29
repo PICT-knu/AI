@@ -26,3 +26,8 @@ from .pdf import (
     PdfExtractResponse,
     TextExtractRequest,
 )
+
+from .job import (
+    JobDetailAnalysisRequest,
+    JobDetailAnalysisResponse,
+)
