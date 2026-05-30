@@ -117,7 +117,7 @@ def get_verifier_llm_client() -> BaseChatModel:
 
     if provider == "openrouter":
         api_key = os.getenv("OPENROUTER_API_KEY")
-        model = os.getenv("VERIFY_MODEL", "meta-llama/llama-3.1-8b-instruct")
+        model = os.getenv("VERIFY_MODEL", "meta-llama/llama-3.1-8b-instruct:free")
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY가 .env에 설정되지 않았습니다.")
         primary = ChatOpenAI(

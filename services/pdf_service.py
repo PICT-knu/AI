@@ -95,7 +95,7 @@ async def extract_materials_from_pdf(pdf_bytes: bytes, filename: str) -> PdfExtr
     if not api_key:
         raise ValueError("OPENROUTER_API_KEY가 설정되지 않았습니다.")
 
-    model = os.getenv("PDF_EXTRACT_MODEL", "google/gemini-2.0-flash-exp:free")
+    model = os.getenv("PDF_EXTRACT_MODEL", "nvidia/nemotron-nano-12b-v2-vl:free")
     safe_name = filename if filename.lower().endswith(".pdf") else filename + ".pdf"
     b64 = base64.b64encode(pdf_bytes).decode("utf-8")
 
