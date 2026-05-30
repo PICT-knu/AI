@@ -1,8 +1,11 @@
 import base64
 import json
+import logging
 import os
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 from models.pdf import PdfExtractResponse
 
@@ -23,6 +26,7 @@ _SYSTEM_PROMPT = """당신은 이력서 소재 추출 전문 AI입니다.
 2. 각 소재는 독립 항목(EXPERIENCE 1건, PROJECT 1건 등) 단위로 분리하십시오.
 3. title은 30자 이내 간결한 제목으로 작성하십시오.
 4. summary는 핵심 내용 2~4문장 요약 또는 null로 작성하십시오.
+   추출 시 해당 소재 카드 내의 summary 필드에 유저가 기여한 구체적 행동이나 결정 사항이 자연스러운 문장으로 반드시 포함되도록 작성하십시오.
 5. 소재가 전혀 없으면 materials를 빈 배열로 반환하십시오."""
 
 
@@ -42,12 +46,13 @@ _SYSTEM_PROMPT_TEXT = """당신은 이력서 소재 추출 전문 AI입니다.
 
 [규칙]
 1. 텍스트에 명시된 내용만 추출하고 내용을 지어내지 마십시오.
-2. 본인이 직접 한 일 또는 보유 역량으로 단정할 수 있을 때만 추출하십시오.
-   회의록, 받은 피드백, 타인 발언, 코드/설정 덤프, 계정/키 같은 자격 증명, 단순 일정·일지 등은
-   소재로 보지 말고 materials 를 빈 배열로 반환하십시오.
+2. 단순 일정표·명단처럼 이력서 소재가 전혀 없는 페이지는 빈 배열로 반환하십시오.
+   단, 프로젝트 설명·개발 기여·역할·성과가 포함된 내용은 PROJECT 또는 EXPERIENCE로 추출하십시오.
+   회의록이라도 본인의 기여/결정 사항이 명시되면 추출 대상입니다.
 3. 각 소재는 독립 항목(EXPERIENCE 1건, PROJECT 1건 등) 단위로 분리하십시오.
 4. title은 30자 이내 간결한 제목으로 작성하십시오.
 5. summary는 핵심 내용 2~4문장 요약 또는 null로 작성하십시오.
+   추출 시 해당 소재 카드 내의 summary 필드에 유저가 기여한 구체적 행동이나 결정 사항이 자연스러운 문장으로 반드시 포함되도록 작성하십시오.
 6. 소재가 전혀 없으면 materials를 빈 배열로 반환하십시오."""
 
 
@@ -118,16 +123,22 @@ async def extract_materials_from_pdf(pdf_bytes: bytes, filename: str) -> PdfExtr
         "temperature": 0.1,
     }
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(
-            _OPENROUTER_URL,
-            json=payload,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-        )
-        resp.raise_for_status()
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(
+                _OPENROUTER_URL,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+            resp.raise_for_status()
+    except Exception as e:
+        error_detail = getattr(e, "response", None)
+        error_detail = error_detail.text[:500] if error_detail else str(e)
+        logger.error("PDF 추출 OpenRouter 오류 (model=%s): %s", model, error_detail)
+        raise
 
     raw = resp.json()["choices"][0]["message"]["content"]
     if not raw:
@@ -170,16 +181,22 @@ async def extract_materials_from_text(text: str) -> PdfExtractResponse:
         "temperature": 0.1,
     }
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(
-            _OPENROUTER_URL,
-            json=payload,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-        )
-        resp.raise_for_status()
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(
+                _OPENROUTER_URL,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+            resp.raise_for_status()
+    except Exception as e:
+        error_detail = getattr(e, "response", None)
+        error_detail = error_detail.text[:500] if error_detail else str(e)
+        logger.error("텍스트 추출 OpenRouter 오류 (model=%s): %s", model, error_detail)
+        raise
 
     raw = resp.json()["choices"][0]["message"]["content"]
     if not raw:
