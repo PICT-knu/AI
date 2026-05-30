@@ -4,10 +4,12 @@ import logging
 import os
 
 import httpx
-
-logger = logging.getLogger(__name__)
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from models.pdf import PdfExtractResponse
+from services.llm_client import get_llm_client
+
+logger = logging.getLogger(__name__)
 
 _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
@@ -93,10 +95,7 @@ async def extract_materials_from_pdf(pdf_bytes: bytes, filename: str) -> PdfExtr
     if not api_key:
         raise ValueError("OPENROUTER_API_KEY가 설정되지 않았습니다.")
 
-    model = (
-        os.getenv("PDF_EXTRACT_MODEL")
-        or os.getenv("OPENROUTER_MODEL", "anthropic/claude-opus-4")
-    )
+    model = os.getenv("PDF_EXTRACT_MODEL", "google/gemini-2.0-flash-exp:free")
     safe_name = filename if filename.lower().endswith(".pdf") else filename + ".pdf"
     b64 = base64.b64encode(pdf_bytes).decode("utf-8")
 
@@ -148,60 +147,38 @@ async def extract_materials_from_pdf(pdf_bytes: bytes, filename: str) -> PdfExtr
 
 
 async def extract_materials_from_text(text: str) -> PdfExtractResponse:
-    """자유 형식 텍스트(Notion 페이지 본문 등)에서 소재를 추출.
-
-    PDF 흐름과 동일하게 OpenRouter 호출 + JSON Schema 강제. 차이점은 file/file-parser 플러그인을
-    쓰지 않고 단순 text content 로 보낸다는 점과 빈/공백 입력은 LLM 호출 없이 빈 결과를 돌려준다는
-    점. 응답 모델은 PDF 흐름과 동일한 PdfExtractResponse 를 재사용한다.
-    """
-    api_key = os.getenv("OPENROUTER_API_KEY")
-    if not api_key:
-        raise ValueError("OPENROUTER_API_KEY가 설정되지 않았습니다.")
-
+    """자유 형식 텍스트(Notion 페이지 본문 등)에서 소재를 추출. Groq 사용."""
     if not text or not text.strip():
         return PdfExtractResponse(materials=[])
 
-    # Notion 본문 등 외부 원본을 그대로 받기 때문에 lone surrogate / 잘린 UTF-8 시퀀스가 섞일 수 있다.
-    # httpx 가 OpenRouter 로 json.dumps 시 surrogates not allowed 로 터지므로 한 번 정리해서 안전화.
+    # lone surrogate / 잘린 UTF-8 시퀀스 정리
     text = text.encode("utf-8", errors="ignore").decode("utf-8")
 
-    model = (
-        os.getenv("TEXT_EXTRACT_MODEL")
-        or os.getenv("PDF_EXTRACT_MODEL")
-        or os.getenv("OPENROUTER_MODEL", "anthropic/claude-opus-4")
+    system_content = (
+        _SYSTEM_PROMPT_TEXT
+        + "\n\n[출력 형식 — 반드시 준수]\n"
+        "JSON 객체만 출력하라. 다른 텍스트 없음:\n"
+        '{"materials": [{"title": "...", "summary": "...", "material_type": "EXPERIENCE|PROJECT|SKILL|EDUCATION|OTHER"}]}'
     )
 
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": _SYSTEM_PROMPT_TEXT},
-            {"role": "user", "content": text},
-        ],
-        "response_format": _JSON_SCHEMA,
-        "temperature": 0.1,
-    }
+    llm = get_llm_client(temperature=0.1).bind(
+        response_format={"type": "json_object"}
+    )
 
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(
-                _OPENROUTER_URL,
-                json=payload,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-            )
-            resp.raise_for_status()
+        resp = await llm.ainvoke([
+            SystemMessage(content=system_content),
+            HumanMessage(content=text),
+        ])
     except Exception as e:
-        error_detail = getattr(e, "response", None)
-        error_detail = error_detail.text[:500] if error_detail else str(e)
-        logger.error("텍스트 추출 OpenRouter 오류 (model=%s): %s", model, error_detail)
+        logger.error("텍스트 추출 Groq 오류: %s", e)
         raise
 
-    raw = resp.json()["choices"][0]["message"]["content"]
-    if not raw:
-        raise ValueError(f"OpenRouter returned empty content (model={model})")
-    parsed = raw if isinstance(raw, dict) else json.loads(raw)
-    return PdfExtractResponse.model_validate(parsed)
+    try:
+        parsed = json.loads(resp.content)
+        return PdfExtractResponse.model_validate(parsed)
+    except Exception as e:
+        logger.error("텍스트 추출 JSON 파싱 오류: %s | 응답: %s", e, resp.content[:200])
+        return PdfExtractResponse(materials=[])
 
 
