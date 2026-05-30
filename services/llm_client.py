@@ -40,7 +40,7 @@ def get_llm_client(temperature: float = 0.6) -> BaseChatModel: #temperature 변�
 
     if provider == "openrouter":
         api_key = os.getenv("OPENROUTER_API_KEY")
-        model = os.getenv("OPENROUTER_MODEL", "anthropic/claude-opus-4")
+        model = os.getenv("OPENROUTER_MODEL", FREE_MODELS[0])
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY가 .env에 설정되지 않았습니다.")
         primary = ChatOpenAI(
@@ -79,7 +79,7 @@ def get_light_llm_client(temperature: float = 0.1) -> BaseChatModel:
 
     if provider == "openrouter":
         api_key = os.getenv("OPENROUTER_API_KEY")
-        model = os.getenv("OPENROUTER_LIGHT_MODEL") or os.getenv("OPENROUTER_MODEL", "anthropic/claude-opus-4")
+        model = os.getenv("OPENROUTER_LIGHT_MODEL") or os.getenv("OPENROUTER_MODEL", FREE_MODELS[0])
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY가 .env에 설정되지 않았습니다.")
         primary = ChatOpenAI(
