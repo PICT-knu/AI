@@ -53,9 +53,8 @@ def _get_verifier_llm():
 
 
 async def _ainvoke(llm, messages: list, json_mode: bool = False):
-    """LLM 호출 + 타임아웃. json_mode=True이면 response_format JSON object 강제."""
-    bound = llm.bind(response_format={"type": "json_object"}) if json_mode else llm
-    return await asyncio.wait_for(bound.ainvoke(messages), timeout=_LLM_TIMEOUT)
+    """LLM 호출 + 타임아웃. JSON 출력은 프롬프트로 강제."""
+    return await asyncio.wait_for(llm.ainvoke(messages), timeout=_LLM_TIMEOUT)
 
 
 # ── 챗봇 모드 헬퍼 ────────────────────────────────────────────────────────────
