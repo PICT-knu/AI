@@ -161,9 +161,7 @@ async def extract_materials_from_text(text: str) -> PdfExtractResponse:
         '{"materials": [{"title": "...", "summary": "...", "material_type": "EXPERIENCE|PROJECT|SKILL|EDUCATION|OTHER"}]}'
     )
 
-    llm = get_llm_client(temperature=0.1).bind(
-        response_format={"type": "json_object"}
-    )
+    llm = get_llm_client(temperature=0.1)
 
     try:
         resp = await llm.ainvoke([

@@ -35,9 +35,7 @@ async def analyze_job_detail(description: str) -> JobDetailAnalysisResponse:
 
     description = description.encode("utf-8", errors="ignore").decode("utf-8")
 
-    llm = get_llm_client(temperature=0.2).bind(
-        response_format={"type": "json_object"}
-    )
+    llm = get_llm_client(temperature=0.2)
 
     try:
         resp = await llm.ainvoke([
