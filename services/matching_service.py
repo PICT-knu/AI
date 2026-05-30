@@ -89,7 +89,7 @@ async def _embedding_filter(
         return []
 
     embedder = OpenAIEmbeddings(
-        model="openai/text-embedding-3-small",
+        model="nvidia/llama-nemotron-embed-vl-1b-v2:free",
         api_key=os.getenv("OPENROUTER_API_KEY"),
         base_url="https://openrouter.ai/api/v1",
     )
