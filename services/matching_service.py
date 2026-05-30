@@ -5,13 +5,8 @@ import os
 import re
 
 import numpy as np
-from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_core.messages import HumanMessage, SystemMessage
-
-_embedder = HuggingFaceEmbeddings(
-    model_name="paraphrase-multilingual-MiniLM-L12-v2",
-    model_kwargs={"device": "cpu"},
-)
+from langchain_openai import OpenAIEmbeddings
 
 from models import ResumeMaterial, JobPost, MatchResponse, Recommendation
 from models.matching import UserPreferences
@@ -93,7 +88,7 @@ async def _embedding_filter(
     if not job_posts:
         return []
 
-    embedder = _embedder
+    embedder = OpenAIEmbeddings(model="text-embedding-3-small")
 
     user_text = " ".join(m.content for m in materials)
     job_texts = [
