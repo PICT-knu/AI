@@ -88,7 +88,11 @@ async def _embedding_filter(
     if not job_posts:
         return []
 
-    embedder = OpenAIEmbeddings(model="text-embedding-3-small")
+    embedder = OpenAIEmbeddings(
+        model="openai/text-embedding-3-small",
+        api_key=os.getenv("OPENROUTER_API_KEY"),
+        base_url="https://openrouter.ai/api/v1",
+    )
 
     user_text = " ".join(m.content for m in materials)
     job_texts = [
