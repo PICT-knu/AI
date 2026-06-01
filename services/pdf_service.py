@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import os
+import re
 
 import httpx
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -12,6 +13,8 @@ from services.llm_client import get_llm_client
 logger = logging.getLogger(__name__)
 
 _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+_JSON_FENCE_RE = re.compile(r"^\s*```\s*(?:json)?\s*(.*?)\s*```\s*$", re.DOTALL | re.IGNORECASE)
+_BARE_MATERIALS_RE = re.compile(r'^"materials"\s*:', re.DOTALL)
 
 _SYSTEM_PROMPT = """당신은 이력서 소재 추출 전문 AI입니다.
 첨부된 PDF 이력서를 분석하여 아래 규칙에 따라 소재를 추출하십시오.
@@ -142,8 +145,7 @@ async def extract_materials_from_pdf(pdf_bytes: bytes, filename: str) -> PdfExtr
     raw = resp.json()["choices"][0]["message"]["content"]
     if not raw:
         raise ValueError(f"OpenRouter returned empty content (model={model})")
-    parsed = raw if isinstance(raw, dict) else json.loads(raw)
-    return PdfExtractResponse.model_validate(parsed)
+    return _parse_extract_response(raw)
 
 
 async def extract_materials_from_text(text: str) -> PdfExtractResponse:
@@ -151,13 +153,12 @@ async def extract_materials_from_text(text: str) -> PdfExtractResponse:
     if not text or not text.strip():
         return PdfExtractResponse(materials=[])
 
-    # lone surrogate / 잘린 UTF-8 시퀀스 정리
     text = text.encode("utf-8", errors="ignore").decode("utf-8")
 
     system_content = (
         _SYSTEM_PROMPT_TEXT
-        + "\n\n[출력 형식 — 반드시 준수]\n"
-        "JSON 객체만 출력하라. 다른 텍스트 없음:\n"
+        + "\n\n[Output format - required]\n"
+        "Return only a JSON object. No markdown, code fences, or extra text:\n"
         '{"materials": [{"title": "...", "summary": "...", "material_type": "EXPERIENCE|PROJECT|SKILL|EDUCATION|OTHER"}]}'
     )
 
@@ -169,14 +170,55 @@ async def extract_materials_from_text(text: str) -> PdfExtractResponse:
             HumanMessage(content=text),
         ])
     except Exception as e:
-        logger.error("텍스트 추출 Groq 오류: %s", e)
+        logger.error("Text extraction LLM error: %s", e)
         raise
 
     try:
-        parsed = json.loads(resp.content)
-        return PdfExtractResponse.model_validate(parsed)
+        return _parse_extract_response(resp.content)
     except Exception as e:
-        logger.error("텍스트 추출 JSON 파싱 오류: %s | 응답: %s", e, resp.content[:200])
+        logger.error("Text extraction JSON parse error: %s | response: %s", e, resp.content[:200])
         return PdfExtractResponse(materials=[])
+
+
+def _parse_extract_response(raw: object) -> PdfExtractResponse:
+    if isinstance(raw, dict):
+        return PdfExtractResponse.model_validate(raw)
+    if not isinstance(raw, str) or not raw.strip():
+        raise ValueError("empty extract response")
+
+    text = _strip_json_fence(raw)
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as direct_error:
+        parsed = _load_recoverable_json(text, direct_error)
+    return PdfExtractResponse.model_validate(parsed)
+
+
+def _strip_json_fence(raw: str) -> str:
+    text = raw.strip()
+    match = _JSON_FENCE_RE.match(text)
+    if match:
+        return match.group(1).strip()
+
+    lines = text.splitlines()
+    if lines and lines[0].strip().startswith("```"):
+        lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        return "\n".join(lines).strip()
+    return text
+
+
+def _load_recoverable_json(text: str, original_error: json.JSONDecodeError) -> object:
+    stripped = text.strip()
+    if _BARE_MATERIALS_RE.match(stripped):
+        return json.loads("{" + stripped + "}")
+
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end > start:
+        return json.loads(text[start:end + 1])
+
+    raise original_error
 
 
