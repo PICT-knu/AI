@@ -83,7 +83,7 @@ def _build_chat_system_prompt(materials: list[ResumeMaterial], job_post: JobPost
         '{"reason": "수정 이유 (255자 이하)", '
         '"body": {"about": "자기소개 문단", '
         '"experience": [{"company": "회사명", "period": "기간", "role": "직무", "description": "상세 내용"}], '
-        '"skills": ["기술1", "기술2"]}}'
+        '"skills": {"languages": ["언어1"], "frameworks": ["프레임워크1"], "tools": ["도구1"]}}'
     )
 
 
@@ -108,10 +108,17 @@ def _parse_body_from_llm(text: str) -> tuple[str, ResumeBody]:
                 ResumeExperience(**exp) if isinstance(exp, dict) else ResumeExperience()
                 for exp in body_data.get("experience", [])
             ]
+            skills_raw = body_data.get("skills", [])
+            if isinstance(skills_raw, dict):
+                skills = [item for vals in skills_raw.values() for item in (vals if isinstance(vals, list) else [])]
+            elif isinstance(skills_raw, list):
+                skills = [str(s) for s in skills_raw]
+            else:
+                skills = []
             body = ResumeBody(
                 about=body_data.get("about"),
                 experience=experiences,
-                skills=body_data.get("skills", []),
+                skills=skills,
             )
             return reason, body
         except (json.JSONDecodeError, TypeError):
@@ -152,10 +159,17 @@ def _parse_resume_body(text: str) -> ResumeBody:
                 ResumeExperience(**exp) if isinstance(exp, dict) else ResumeExperience()
                 for exp in data.get("experience", [])
             ]
+            skills_raw = data.get("skills", [])
+            if isinstance(skills_raw, dict):
+                skills = [item for vals in skills_raw.values() for item in (vals if isinstance(vals, list) else [])]
+            elif isinstance(skills_raw, list):
+                skills = [str(s) for s in skills_raw]
+            else:
+                skills = []
             return ResumeBody(
                 about=data.get("about"),
                 experience=experiences,
-                skills=data.get("skills", []),
+                skills=skills,
             )
         except (json.JSONDecodeError, TypeError):
             pass
