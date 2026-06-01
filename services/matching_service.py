@@ -10,7 +10,7 @@ from langchain_openai import OpenAIEmbeddings
 
 from models import ResumeMaterial, JobPost, MatchResponse, Recommendation
 from models.matching import UserPreferences
-from services.llm_client import get_llm_client
+from services.llm_client import get_matching_llm_client
 from utils.fact_check import build_context_block
 
 logger = logging.getLogger(__name__)
@@ -235,7 +235,7 @@ async def top10_matching(
     지역 필터 결과 < 10이면 지역 필터 해제 후 재시도.
     """
     pref = user_preferences or UserPreferences()
-    llm = get_llm_client(temperature=0.1)
+    llm = get_matching_llm_client(temperature=0.1)
 
     # [1] 피하고 싶어요 + 지역 필터
     eligible = _pre_filter(job_posts, pref, apply_location=True)
