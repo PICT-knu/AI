@@ -47,7 +47,11 @@ async def analyze_job_detail(description: str) -> JobDetailAnalysisResponse:
         raise
 
     try:
-        parsed = json.loads(resp.content)
+        text = resp.content.strip()
+        start, end = text.find("{"), text.rfind("}")
+        if start == -1 or end == -1:
+            raise ValueError("응답에서 JSON 객체를 찾을 수 없음")
+        parsed = json.loads(text[start:end + 1])
         return JobDetailAnalysisResponse.model_validate(parsed)
     except Exception as e:
         logger.error("공고 분석 JSON 파싱 오류: %s | 응답: %s", e, resp.content[:200])
