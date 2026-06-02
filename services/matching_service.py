@@ -18,6 +18,14 @@ logger = logging.getLogger(__name__)
 BATCH_SIZE = 10
 _LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT_SECONDS", "90"))
 
+# 정보 충실도 감점용 필드 가중치 (운영 데이터 보며 튜닝).
+# education_text는 "학력무관"이 빈 값으로 올 수 있어 제외(정상 공고 오탐 방지).
+_INFO_FIELD_WEIGHTS: dict[str, float] = {
+    "description": 0.6,       # 메인 분석 대상 — 정상 공고가 비는 일 없음
+    "experience_text": 0.2,
+    "employment_type": 0.2,
+}
+
 # 피하고 싶어요 고정 선택지 → 검사 키워드 매핑
 AVOIDANCE_KEYWORD_MAP: dict[str, list[str]] = {
     "계약직 제외":         ["계약직"],
@@ -149,6 +157,7 @@ def _build_score_prompt(
 - JSON 배열 하나만 출력한다. 다른 텍스트나 마크다운을 포함하지 않는다.
 - 첫 글자는 반드시 [ 이고 마지막 글자는 반드시 ] 이다.
 - 전달된 모든 공고에 대해 빠짐없이 점수를 계산한다. Top N 선택은 하지 않는다.
+- 공고 설명·경력·고용형태 정보가 비어 있거나 부실하면 적합도를 신뢰할 수 없으므로 낮은 점수를 부여한다. 정보가 없다는 이유로 높은 점수를 주지 마라.
 - 스키마: [{{"job_posting_id": <공고 ID>, "match_score": 87.50, "reason_text": "경력:90, 기술스택:80, 복지:75"}}]
 - match_score는 0~100 사이 소수점 2자리 숫자이다."""
 
@@ -156,8 +165,7 @@ def _build_score_prompt(
 def _format_batch(batch: list[JobPost]) -> str:
     lines = ["[평가 대상 채용 공고]"]
     for jp in batch:
-        jid = jp.job_posting_id if jp.job_posting_id is not None else jp.job_id
-        lines.append(f"\n## job_posting_id: {jid}")
+        lines.append(f"\n## job_posting_id: {_job_key(jp)}")
         lines.append(f"- 공고 설명: {jp.description}")
         lines.append(f"- 경력 조건: {jp.experience_text}")
         lines.append(f"- 학력 조건: {jp.education_text}")
@@ -201,6 +209,54 @@ def _parse_scores(text: str) -> list[Recommendation]:
     return result
 
 
+def _job_key(jp: JobPost) -> str:
+    """_format_batch와 동일한 ID 규칙: job_posting_id 우선, 없으면 job_id."""
+    jid = jp.job_posting_id if jp.job_posting_id is not None else jp.job_id
+    return str(jid)
+
+
+def _rec_key(rec: Recommendation) -> str:
+    rid = rec.job_posting_id if rec.job_posting_id is not None else rec.job_id
+    return str(rid)
+
+
+def _info_completeness(jp: JobPost) -> float:
+    """
+    공고의 정보 충실도 비율 [0.0~1.0]을 가중치 합으로 계산.
+    빈 문자열뿐 아니라 None도 안전하게 처리한다(크롤링/프론트 데이터에서 None 유입 가능).
+    """
+    score = 0.0
+    for field, weight in _INFO_FIELD_WEIGHTS.items():
+        value = getattr(jp, field, None)
+        # None.strip() AttributeError 방지 — 반드시 None 체크 먼저
+        if value and value.strip():
+            score += weight
+    return round(score, 4)
+
+
+def _apply_info_penalty(
+    recs: list[Recommendation], batch: list[JobPost]
+) -> list[Recommendation]:
+    """
+    정보 충실도(completeness)에 비례해 match_score를 감점한다.
+    완전 제거가 아닌 소프트 감점이라, completeness=0.0이면 점수도 0.0이 된다.
+    """
+    completeness_map = {_job_key(jp): _info_completeness(jp) for jp in batch}
+
+    for rec in recs:
+        completeness = completeness_map.get(_rec_key(rec), 1.0)
+        if completeness >= 1.0:
+            continue
+        # match_score가 문자열로 파싱돼 들어올 수 있어 연산 전 확실히 float 캐스팅
+        before = float(rec.match_score)
+        rec.match_score = round(before * completeness, 2)
+        logger.info(
+            "[Penalty Applied] Job ID %s: score %s -> %s (completeness=%s)",
+            _rec_key(rec), before, rec.match_score, completeness,
+        )
+    return recs
+
+
 async def _score_batch(
     batch: list[JobPost],
     materials: list[ResumeMaterial],
@@ -216,7 +272,8 @@ async def _score_batch(
             ),
         ]
         response = await asyncio.wait_for(llm.ainvoke(messages), timeout=_LLM_TIMEOUT)
-        return _parse_scores(response.content)
+        recs = _parse_scores(response.content)
+        return _apply_info_penalty(recs, batch)
     except Exception as e:
         logger.warning("배치 처리 실패 (건너뜀): %s", e)
         return []
