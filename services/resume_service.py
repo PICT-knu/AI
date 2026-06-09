@@ -6,6 +6,7 @@ import re
 from datetime import datetime, timezone
 
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from pydantic import BaseModel
 
 from models import (
     ResumeMaterial,
@@ -18,7 +19,12 @@ from models import (
     ResumeChatResponse,
     ResumeGenerateResponse,
 )
-from services.llm_client import get_llm_client, get_light_llm_client, get_verifier_llm_client
+from services.llm_client import (
+    get_llm_client,
+    get_light_llm_client,
+    get_verifier_llm_client,
+    ainvoke_structured,
+)
 from services.session_store import session_store
 from utils.fact_check import (
     build_context_block,
@@ -34,6 +40,12 @@ logger = logging.getLogger(__name__)
 _MAX_HISTORY_MESSAGES = 20
 _SUMMARY_KEEP_MESSAGES = 6
 _LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT_SECONDS", "90"))
+
+
+class _ChatResult(BaseModel):
+    """챗봇 교정 모드 구조화 출력 전용 내부 모델 (BE로 노출하지 않음)."""
+    reason: str
+    body: ResumeBody
 
 
 _VERSION_STYLES = {
@@ -75,15 +87,12 @@ def _build_chat_system_prompt(materials: list[ResumeMaterial], job_post: JobPost
         "사용자의 요청에 따라 이력서를 수정하되, 반드시 아래 소재에서 유래한 내용만 사용하십시오.\n"
         "제공된 소재에 없는 내용을 추가하거나 지어내지 마십시오.\n\n"
         f"{context}{job_info}\n\n"
-        "[출력 규칙 — 반드시 준수]\n"
-        "- 응답은 JSON 객체 하나만 출력한다. 다른 텍스트, 설명, 마크다운 코드 블록을 절대 포함하지 않는다.\n"
-        "- 첫 글자는 반드시 { 이어야 하고, 마지막 글자는 반드시 } 이어야 한다.\n"
-        "- reason은 255자 이하로 작성한다.\n"
-        "- 아래 스키마를 정확히 따른다:\n\n"
-        '{"reason": "수정 이유 (255자 이하)", '
-        '"body": {"about": "자기소개 문단", '
-        '"experience": [{"company": "회사명", "period": "기간", "role": "직무", "description": "상세 내용"}], '
-        '"skills": {"languages": ["언어1"], "frameworks": ["프레임워크1"], "tools": ["도구1"]}}'
+        "[출력 내용 지침]\n"
+        "- reason: 어떤 부분을 왜 수정했는지 255자 이하로 설명한다.\n"
+        "- body.about: 자기소개 문단.\n"
+        "- body.experience: 경력 목록. 각 항목은 company(회사명)·period(기간)·role(직무)·description(상세 내용).\n"
+        "- body.skills: 기술스택 문자열 목록 (예: [\"Python\", \"FastAPI\"]).\n"
+        "- 위 모든 내용은 반드시 제공된 소재에서 유래해야 한다."
     )
 
 
@@ -272,11 +281,20 @@ async def _generate_version(
     if issue_note:
         user_msg += f"\n\n주의: 이전 생성에서 아래 문제가 감지되었습니다. 반드시 수정하십시오:\n{issue_note}"
 
-    resp = await _ainvoke(llm, [
+    messages = [
         SystemMessage(content=system_prompt),
         HumanMessage(content=user_msg),
-    ], json_mode=True)
-    return resp.content
+    ]
+
+    # 구조화 출력: ResumeBody 스키마를 강제. 마스크 [Fx]는 필드 안에 보존된 채로 생성된다.
+    # model_dump_json() 문자열로 돌려주면 하류의 unmask_text/_parse_resume_body를 그대로 재사용.
+    try:
+        body = await ainvoke_structured(llm, messages, ResumeBody, _LLM_TIMEOUT)
+        return body.model_dump_json()
+    except Exception as e:
+        logger.warning("_generate_version: 구조화 출력 실패, 수동 파싱 폴백: %s", e)
+        resp = await _ainvoke(llm, messages, json_mode=True)
+        return resp.content
 
 
 async def _score_version(version_text: str, job_post: JobPost, llm) -> int:
@@ -430,13 +448,20 @@ async def chat_resume(
             messages.append(SystemMessage(content=msg["content"]))
     messages.append(HumanMessage(content=message))
 
-    response = await _ainvoke(llm, messages, json_mode=True)
-    ai_text = response.content
-
     session_store.append(sid, "user", message)
-    session_store.append(sid, "assistant", ai_text)
 
-    reason, body = _parse_body_from_llm(ai_text)
+    # 구조화 출력: {reason, body} 스키마를 강제. 실패 시 기존 수동 파싱으로 폴백.
+    try:
+        result = await ainvoke_structured(llm, messages, _ChatResult, _LLM_TIMEOUT)
+        reason = result.reason[:255]
+        body = result.body
+        session_store.append(sid, "assistant", result.model_dump_json())
+    except Exception as e:
+        logger.warning("chat_resume: 구조화 출력 실패, 수동 파싱 폴백: %s", e)
+        response = await _ainvoke(llm, messages, json_mode=True)
+        ai_text = response.content
+        session_store.append(sid, "assistant", ai_text)
+        reason, body = _parse_body_from_llm(ai_text)
 
     is_pass, _ = await llm_verify_against_materials(
         body.model_dump_json(), materials, verifier_llm

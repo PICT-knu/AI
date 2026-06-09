@@ -1,3 +1,4 @@
+import asyncio
 import os
 from dotenv import load_dotenv
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -6,6 +7,19 @@ from langchain_openai import ChatOpenAI
 
 load_dotenv('config.env')   # 공개 설정 (git 추적)
 load_dotenv(override=True)  # API 키 (.env, gitignore) — 같은 변수명이면 .env 우선
+
+
+async def ainvoke_structured(llm: BaseChatModel, messages: list, schema_model, timeout: float):
+    """
+    with_structured_output으로 LLM 응답을 schema_model(Pydantic) 객체로 직접 받아 반환한다.
+    수동 JSON 파싱(text.find("{")+json.loads)을 대체하여 파싱 실패 클래스를 제거한다.
+
+    method는 고정하지 않고 LangChain이 프로바이더별 최적 메서드를 자동 선택하게 둔다.
+    (OpenRouter 경유 gemini/deepseek 등은 method="json_schema"를 칼같이 지원 안 할 수 있음)
+    provider 미지원/검증 실패 시 예외를 그대로 올려 호출부의 수동 파싱 폴백으로 유도한다.
+    """
+    structured = llm.with_structured_output(schema_model)
+    return await asyncio.wait_for(structured.ainvoke(messages), timeout=timeout)
 
 
 def get_llm_client(temperature: float = 0.6) -> BaseChatModel: #temperature 변경 시 정확도와 창의성의 비율을 조절 가능

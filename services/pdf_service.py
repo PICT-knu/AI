@@ -8,7 +8,7 @@ import httpx
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from models.pdf import PdfExtractResponse
-from services.llm_client import get_llm_client
+from services.llm_client import get_llm_client, ainvoke_structured
 
 logger = logging.getLogger(__name__)
 
@@ -160,18 +160,27 @@ async def extract_materials_from_text(text: str) -> PdfExtractResponse:
 
     system_content = (
         _SYSTEM_PROMPT_TEXT
-        + "\n\n[Output format - required]\n"
-        "Return only a JSON object. No markdown, code fences, or extra text:\n"
+        + "\n\n[출력 내용 지침]\n"
+        "각 소재는 title(30자 이내 제목), summary(2~4문장 요약 또는 null), "
+        "material_type(EXPERIENCE|PROJECT|SKILL|EDUCATION|OTHER) 필드로 구성한다.\n"
+        "응답은 materials 배열을 가진 JSON 객체 하나로만 반환한다 (배열을 직접 반환하지 말 것):\n"
         '{"materials": [{"title": "...", "summary": "...", "material_type": "EXPERIENCE|PROJECT|SKILL|EDUCATION|OTHER"}]}'
     )
 
     llm = get_llm_client(temperature=0.1)
+    messages = [
+        SystemMessage(content=system_content),
+        HumanMessage(content=text),
+    ]
+
+    # 구조화 출력: PdfExtractResponse 스키마 강제. 실패 시 기존 수동 파싱으로 폴백.
+    try:
+        return await ainvoke_structured(llm, messages, PdfExtractResponse, 120)
+    except Exception as e:
+        logger.warning("Text extraction: 구조화 출력 실패, 수동 파싱 폴백: %s", e)
 
     try:
-        resp = await llm.ainvoke([
-            SystemMessage(content=system_content),
-            HumanMessage(content=text),
-        ])
+        resp = await llm.ainvoke(messages)
     except Exception as e:
         logger.error("Text extraction LLM error: %s", e)
         raise
@@ -194,6 +203,9 @@ def _parse_extract_response(raw: object) -> PdfExtractResponse:
         parsed = json.loads(text)
     except json.JSONDecodeError as direct_error:
         parsed = _load_recoverable_json(text, direct_error)
+    # 모델이 {"materials": [...]} 래퍼 없이 최상위 배열을 반환한 경우 복구
+    if isinstance(parsed, list):
+        parsed = {"materials": parsed}
     return PdfExtractResponse.model_validate(parsed)
 
 
