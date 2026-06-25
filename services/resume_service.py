@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timezone
 
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from models import (
     ResumeMaterial,
@@ -46,6 +46,11 @@ class _ChatResult(BaseModel):
     """챗봇 교정 모드 구조화 출력 전용 내부 모델 (BE로 노출하지 않음)."""
     reason: str
     body: ResumeBody
+
+
+class _ScoreResult(BaseModel):
+    """버전 스코어링 구조화 출력 전용 내부 모델 (BE로 노출하지 않음)."""
+    score: int = Field(description="채용 공고 적합도 0~100", ge=0, le=100)
 
 
 _VERSION_STYLES = {
@@ -302,13 +307,19 @@ async def _score_version(version_text: str, job_post: JobPost, llm) -> int:
     prompt = (
         f"[채용 공고]\n{job_post.description}\n경력: {job_post.experience_text}\n\n"
         f"[이력서]\n{version_text}\n\n"
-        "위 이력서가 채용 공고의 요구사항을 얼마나 충족하는지 0~100 정수로만 답하라. 다른 텍스트 없음."
+        "위 이력서가 채용 공고의 요구사항을 얼마나 충족하는지 0~100 정수로 score 필드에 답하라."
     )
-    resp = await _ainvoke(llm, [HumanMessage(content=prompt)])
-    match = re.search(r"\d+", resp.content.strip())
-    if match:
-        return min(100, max(0, int(match.group())))
-    return 50
+    messages = [HumanMessage(content=prompt)]
+    try:
+        result = await ainvoke_structured(llm, messages, _ScoreResult, _LLM_TIMEOUT)
+        return min(100, max(0, result.score))
+    except Exception as e:
+        logger.warning("_score_version: 구조화 출력 실패, 수동 파싱 폴백: %s", e)
+        resp = await _ainvoke(llm, messages)
+        match = re.search(r"\b(\d{1,3})\b", resp.content.strip())
+        if match:
+            return min(100, max(0, int(match.group())))
+        return 50
 
 
 async def _run_version_pipeline(
